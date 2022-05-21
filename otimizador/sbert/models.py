@@ -107,6 +107,9 @@ class ONNXSBERT:
 
         return logits
 
+    def __call__(self, *args: t.Any, **kwargs: t.Any) -> npt.NDArray[np.float64]:
+        return self.encode(*args, **kwargs)
+
 
 class ONNXSBERTSurrogate(transformers.BertModel):
     """Create a temporary container class for SBERT + Average Pooler.
