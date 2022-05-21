@@ -14,11 +14,11 @@ from .. import optional_import_utils
 
 
 __all__ = [
-    "quantize_sbert_model_as_onnx",
+    "quantize_as_onnx",
 ]
 
 
-def quantize_sbert_model_as_onnx(
+def quantize_as_onnx(
     model: sentence_transformers.SentenceTransformer,
     quantized_model_filename: t.Optional[str] = None,
     intermediary_onnx_model_name: t.Optional[str] = None,
@@ -96,17 +96,12 @@ def quantize_sbert_model_as_onnx(
     import onnxruntime.quantization
 
     quantized_model_dirpath = utils.expand_path(quantized_model_dirpath)
-    model_config: transformers.BertConfig = model.config  # type: ignore
-    is_pruned = bool(model_config.pruned_heads)
-
-    if is_pruned:
-        raise RuntimeError("SBERT with pruned attention heads will not work in ONNX format.")
+    model_config = model.get_submodule("0.auto_model").config  # type: ignore
 
     model_attributes: t.Dict[str, t.Any] = collections.OrderedDict(
         (
             ("num_layers", model_config.num_hidden_layers),
             ("vocab_size", model.tokenizer.vocab_size),
-            ("pruned", is_pruned),
         )
     )
 
@@ -125,9 +120,7 @@ def quantize_sbert_model_as_onnx(
     if check_cached and os.path.isfile(paths.onnx_quantized_uri):
         return paths
 
-    config_bert = model.get_submodule("0.auto_model").config
-
-    pytorch_module = models.ONNXSBERTSurrogate(config=config_bert)
+    pytorch_module = models.ONNXSBERTSurrogate(config=model_config)
     pytorch_module.load_state_dict(model.get_submodule("0.auto_model").state_dict())
     pytorch_module.eval()
 
@@ -169,7 +162,7 @@ def quantize_sbert_model_as_onnx(
         ),
     )
 
-    os.rename(f"{paths.onnx_base_uri}-opt.onnx", paths.onnx_optimized_uri)
+    os.rename(paths.onnx_base_uri.replace(".onnx", "-opt.onnx"), paths.onnx_optimized_uri)
 
     if clean_intermediary_files:
         try:
