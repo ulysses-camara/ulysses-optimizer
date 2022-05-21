@@ -86,12 +86,12 @@ line-length=100
 [tool.tox]
 legacy_tox_ini = """
 [tox]
-envlist = py37, py310, mypy, pylint
+envlist = py37, py39, mypy, pylint
 isolated_build = true
 [gh-actions]
 python =
     3.7: py37, mypy, pylint
-    3.10: py310
+    3.9: py39
 [testenv]
 whitelist_externals = flit
 commands =
