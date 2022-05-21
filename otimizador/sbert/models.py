@@ -118,7 +118,7 @@ class ONNXSBERTSurrogate(transformers.BertModel):
     This class should not be employed for production inference.
     """
 
-    # pylint: disable='line-too-long,abstract-method,arguments-differ'
+    # pylint: disable='line-too-long,abstract-method,arguments-differ,no-member'
     # Adapted from: https://github.com/UKPLab/sentence-transformers/blob/cb08d92822ffcab9915564fd327e6579a5ed5830/examples/onnx_inference/onnx_inference.ipynb
     def __init__(self, config: transformers.BertConfig, *args: t.Any, **kwargs: t.Any):
         super().__init__(config, *args, **kwargs)

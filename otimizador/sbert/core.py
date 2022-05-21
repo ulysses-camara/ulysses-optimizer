@@ -120,8 +120,8 @@ def quantize_as_onnx(
         return paths
 
     pytorch_module = models.ONNXSBERTSurrogate(config=model_config)
-    pytorch_module.load_state_dict(model.get_submodule("0.auto_model").state_dict())
-    pytorch_module.eval()
+    pytorch_module.load_state_dict(model.get_submodule("0.auto_model").state_dict())  # type: ignore
+    pytorch_module.eval()  # type: ignore
 
     if not check_cached or not os.path.isfile(paths.onnx_base_uri):
         torch_sample_input: t.Tuple[torch.Tensor, ...] = utils.gen_dummy_inputs_for_tracing(

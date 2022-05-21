@@ -1,3 +1,4 @@
+"""Pretrained model setup for quantization."""
 import os
 import shutil
 
@@ -9,7 +10,9 @@ import buscador
 @pytest.fixture(name="fixture_quantized_model_dir", scope="session")
 def fn_fixture_quantized_model_dir():
     try:
-        test_quantized_models_dir = os.path.join(os.path.dirname(__file__), "./test_quantized_models")
+        test_quantized_models_dir = os.path.join(
+            os.path.dirname(__file__), "./test_quantized_models"
+        )
         os.makedirs(test_quantized_models_dir, exist_ok=False)
         yield test_quantized_models_dir
 
@@ -20,7 +23,9 @@ def fn_fixture_quantized_model_dir():
 @pytest.fixture(name="fixture_pretrained_model_dir", scope="session")
 def fn_fixture_pretrained_model_dir():
     try:
-        test_pretrained_models_dir = os.path.join(os.path.dirname(__file__), "./test_pretrained_models")
+        test_pretrained_models_dir = os.path.join(
+            os.path.dirname(__file__), "./test_pretrained_models"
+        )
         os.makedirs(test_pretrained_models_dir, exist_ok=True)
         yield test_pretrained_models_dir
 
