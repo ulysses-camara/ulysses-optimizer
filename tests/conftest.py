@@ -25,8 +25,7 @@ def fn_fixture_pretrained_model_dir():
         yield test_pretrained_models_dir
 
     finally:
-        # shutil.rmtree(test_pretrained_models_dir)
-        pass
+        shutil.rmtree(test_pretrained_models_dir)
 
 
 @pytest.fixture(name="fixture_sbert_model", scope="session")
