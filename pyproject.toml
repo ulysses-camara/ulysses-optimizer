@@ -15,16 +15,16 @@ requires-python = ">=3.7"
 dependencies = [
     "tqdm >= 4.64.0",
     "optimum[onnxruntime] >= 1.1.0",
-    "onnxruntime == 1.11.1",
+    "onnxruntime >= 1.11.1",
     "numpy >= 1.21.6",
-    "transformers == 4.16.2",
+    "transformers >= 4.16.2",
     "regex >= 2022.3.15",
     "colorama >= 0.4.4",
 ]
 
 [project.optional-dependencies]
 sentence = [
-    "sentence-transformers == 2.2.0",
+    "sentence-transformers >= 2.2.0",
 ]
 
 dev = [
