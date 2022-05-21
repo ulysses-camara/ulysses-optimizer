@@ -4,7 +4,6 @@ import os
 import warnings
 import collections
 
-import transformers
 import sentence_transformers
 import torch
 

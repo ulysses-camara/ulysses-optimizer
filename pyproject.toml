@@ -5,7 +5,7 @@ requires = ["flit_core >=3.2,<4"]
 [project]
 name = "otimizador"
 version = "0.1.0"
-description = "OPtimization methods for Ulysses pretrained models."
+description = "Optimization methods for Ulysses pretrained models."
 authors = [
     {name="felsiq", email= "felipe.siqueira@usp.br"}
 ]

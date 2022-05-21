@@ -128,7 +128,7 @@ class ONNXSBERTSurrogate(transformers.BertModel):
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor, token_type_ids: torch.Tensor
     ) -> torch.Tensor:
         out: torch.Tensor = (
-            super()
+            super()  # type: ignore
             .forward(
                 input_ids,
                 attention_mask=attention_mask,
