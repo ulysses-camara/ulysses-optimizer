@@ -1,15 +1,16 @@
 # pylint: disable='missing-module-docstring'
-from .segmenter import *
+from . import sbert
+
 
 try:
-    import importlib.metadata as importlib_metadata
+    import importlib.metadata as _importlib_metadata
 
 except ModuleNotFoundError:
-    import importlib_metadata  # type: ignore
+    import importlib_metadata as _importlib_metadata  # type: ignore
 
 
 try:
-    __version__ = importlib_metadata.version(__name__)
+    __version__ = _importlib_metadata.version(__name__)
 
-except importlib_metadata.PackageNotFoundError:
+except _importlib_metadata.PackageNotFoundError:
     __version__ = "0.1.0"
