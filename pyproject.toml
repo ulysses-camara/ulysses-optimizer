@@ -110,6 +110,8 @@ deps =
     pylint
     pytest
     pytest_socket
+    sentence_transformers
+    buscador @ git+https://github.com/ulysses-camara/ulysses-fetcher@v0.1.1-beta
 commands =
     python -m pylint --disable='missing-function-docstring' tests/
     python -m pylint otimizador/
