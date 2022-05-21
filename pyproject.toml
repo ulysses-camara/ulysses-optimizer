@@ -7,13 +7,13 @@ name = "otimizador"
 version = "0.1.0"
 description = "OPtimization methods for Ulysses pretrained models."
 authors = [
-	{name="felsiq", email= "felipe.siqueira@usp.br"}
+    {name="felsiq", email= "felipe.siqueira@usp.br"}
 ]
 
 requires-python = ">=3.7"
 
 dependencies = [
-	"tqdm >= 4.64.0",
+    "tqdm >= 4.64.0",
     "optimum[onnxruntime] >= 1.1.0",
     "onnxruntime == 1.11.1",
     "numpy >= 1.21.6",
@@ -28,15 +28,16 @@ sentence = [
 ]
 
 dev = [
-	"black >= 22.1.0",
-	"tox >= 3.24.5",
-	"mypy >= 0.942",
-	"pylint >= 2.13.5",
-	"pytest >= 7.1.0",
-	"pytest-cov >= 3.0.0",
-	"pytest-html >= 3.1.1",
-	"pytest-socket >= 0.5.1",
-	"grip >= 4.6.0",
+    "black >= 22.1.0",
+    "tox >= 3.24.5",
+    "mypy >= 0.942",
+    "pylint >= 2.13.5",
+    "pytest >= 7.1.0",
+    "pytest-cov >= 3.0.0",
+    "pytest-html >= 3.1.1",
+    "pytest-socket >= 0.5.1",
+    "grip >= 4.6.0",
+    "buscador @ git+https://github.com/ulysses-camara/ulysses-fetcher@v0.1.1-beta",
 ]
 
 [tool.mypy]
@@ -56,25 +57,25 @@ install_types = true
 
 [tool.pytest.ini_options]
 addopts = """
-	--cov=otimizador
-	--failed-first
-	--new-first
-	--cov-report=html
+    --cov=otimizador
+    --failed-first
+    --new-first
+    --cov-report=html
 """
 testpaths = [
-	"tests",
+    "tests",
 ]
 
 [tool.pylint.messages_control]
 generated-members = "torch.*"
 jobs = 4
 disable = """
-	too-few-public-methods,
-	too-many-locals,
-	too-many-arguments,
-	too-many-statements,
-	too-many-branches,
-	import-outside-toplevel,
+    too-few-public-methods,
+    too-many-locals,
+    too-many-arguments,
+    too-many-statements,
+    too-many-branches,
+    import-outside-toplevel,
     too-many-ancestors
 """
 min-similarity-lines=10
@@ -94,22 +95,22 @@ python =
 [testenv]
 whitelist_externals = flit
 commands =
-	pip install .
-	pip install '.[test]'
-	python -m pytest
+    pip install .
+    pip install '.[dev, sentence]'
+    python -m pytest
 [testenv:mypy]
 basepython = python3.7
 deps = mypy
 commands =
-	python -m mypy --install-types --non-interactive otimizador/
-	python -m mypy otimizador/
+    python -m mypy --install-types --non-interactive otimizador/
+    python -m mypy otimizador/
 [testenv:pylint]
 basepython = python3.7
 deps =
-	pylint
-	pytest
-	pytest_socket
+    pylint
+    pytest
+    pytest_socket
 commands =
-	python -m pylint --disable='missing-function-docstring' tests/
-	python -m pylint otimizador/
+    python -m pylint --disable='missing-function-docstring' tests/
+    python -m pylint otimizador/
 """
