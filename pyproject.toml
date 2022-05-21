@@ -66,6 +66,7 @@ testpaths = [
 ]
 
 [tool.pylint.messages_control]
+generated-members = "torch.*"
 jobs = 4
 disable = """
 	too-few-public-methods,
@@ -73,7 +74,8 @@ disable = """
 	too-many-arguments,
 	too-many-statements,
 	too-many-branches,
-	import-outside-toplevel
+	import-outside-toplevel,
+    too-many-ancestors
 """
 min-similarity-lines=10
 
