@@ -158,3 +158,5 @@ data/
 venvs/
 .python-version
 .tool-versions
+tests/test_pretrained_models
+tests/test_quantized_models
