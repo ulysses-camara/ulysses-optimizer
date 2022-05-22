@@ -1,3 +1,5 @@
+[![Tests](https://github.com/ulysses-camara/ulysses-optimizer/actions/workflows/tests.yml/badge.svg)](https://github.com/ulysses-camara/ulysses-optimizer/actions/workflows/tests.yml)
+
 # Ulysses Optimizer
 
 Optimization and quantization methods for pretrained models. While the resources presented here may be generalized to any supported pretrained model, this package API is built targeting conveniet use in the Ulysses project modules.
