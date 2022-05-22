@@ -2,6 +2,7 @@
 import time
 import os
 
+import pytest
 import sentence_transformers
 import numpy as np
 
@@ -122,14 +123,17 @@ def test_quantization_sbert_default_name(
     os.remove(paths_a.onnx_optimized_uri)
 
 
+@pytest.mark.parametrize("batch_size", (1, 2, 3, 4))
 def test_quantization_sbert_inference(
-    fixture_sbert_model: sentence_transformers.SentenceTransformer, fixture_quantized_model_dir: str
+    fixture_sbert_model: sentence_transformers.SentenceTransformer,
+    fixture_quantized_model_dir: str,
+    batch_size: int,
 ):
     paths = otimizador.sbert.quantize_as_onnx(
         model=fixture_sbert_model,
         quantized_model_dirpath=fixture_quantized_model_dir,
         task_name="test_task",
-        check_cached=False,
+        check_cached=True,
         clean_intermediary_files=True,
     )
 
@@ -137,7 +141,15 @@ def test_quantization_sbert_inference(
         uri_model=paths.output_uri,
         uri_tokenizer=fixture_sbert_model.tokenizer.name_or_path,
     )
-    logits = sbert(["Sequência de teste para inferência :)"])
+
+    logits = sbert(
+        [
+            "Sequência de teste para inferência :)",
+            "Outra sequência, em Português, para testar inferência no SBERT quantizado.",
+            "Oi",
+        ],
+        batch_size=batch_size,
+    )
 
     assert isinstance(logits, np.ndarray)
     assert logits.size
