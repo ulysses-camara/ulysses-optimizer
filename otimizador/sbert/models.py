@@ -44,23 +44,15 @@ class ONNXSBERT:
         self,
         uri_model: str,
         uri_tokenizer: str,
-        embed_dim: int = 768,
         local_files_only: bool = True,
         cache_dir_tokenizer: str = "./cache/tokenizers",
     ):
-        embed_dim = int(embed_dim)
-
-        if embed_dim <= 0:
-            raise ValueError(f"'embed_dim' must be >= 1 (got {embed_dim}).")
-
         self.tokenizer = transformers.BertTokenizer.from_pretrained(
             uri_tokenizer,
             local_files_only=local_files_only,
             cache_dir=cache_dir_tokenizer,
             use_fast=True,
         )
-
-        self.embed_dim = embed_dim
 
         optional_import_utils.load_required_module("onnxruntime")
 
@@ -99,19 +91,22 @@ class ONNXSBERT:
     ) -> npt.NDArray[np.float64]:
         """Predict a tokenized minibatch."""
         # pylint: disable='unused-argument'
-        batch = self.tokenizer(
-            sequences, return_tensors="np", truncation=True, padding="longest", max_length=512
-        )
-
-        batch = {key: np.atleast_2d(val) for key, val in batch.items()}
-
-        logits: npt.NDArray[np.float64] = np.empty((len(sequences), self.embed_dim), dtype=float)
+        model_out_list: t.List[npt.NDArray[np.float64]] = []
 
         for i_start in tqdm.auto.tqdm(
-            range(0, len(batch), batch_size), disable=not show_progress_bar
+            range(0, len(sequences), batch_size), disable=not show_progress_bar
         ):
             i_end = i_start + batch_size
-            minibatch = {key: val[i_start:i_end] for key, val in batch.items()}
+
+            minibatch = self.tokenizer(
+                sequences[i_start:i_end],
+                return_tensors="np",
+                truncation=True,
+                padding="longest",
+                max_length=512,
+            )
+
+            minibatch = {key: np.atleast_2d(val) for key, val in minibatch.items()}
 
             model_out: t.List[npt.NDArray[np.float64]] = self._model.run(
                 output_names=["sentence_embedding"],
@@ -119,12 +114,12 @@ class ONNXSBERT:
                 run_options=None,
             )
 
-            cur_logits = np.vstack(model_out)
+            model_out_list.extend(model_out)
 
-            if cur_logits.ndim >= 3:
-                cur_logits = cur_logits.squeeze(0)
+        logits = np.vstack(model_out_list)
 
-            logits[i_start:i_end, :] = cur_logits
+        if logits.ndim >= 3:
+            logits = logits.squeeze(0)
 
         return logits
 
