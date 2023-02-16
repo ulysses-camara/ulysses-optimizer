@@ -13,11 +13,12 @@ def fn_fixture_quantized_model_dir():
         test_quantized_models_dir = os.path.join(
             os.path.dirname(__file__), "./test_quantized_models"
         )
-        os.makedirs(test_quantized_models_dir, exist_ok=False)
+        os.makedirs(test_quantized_models_dir, exist_ok=True)
         yield test_quantized_models_dir
 
     finally:
-        shutil.rmtree(test_quantized_models_dir)
+        # shutil.rmtree(test_quantized_models_dir)
+        pass
 
 
 @pytest.fixture(name="fixture_pretrained_model_dir", scope="session")
@@ -30,7 +31,8 @@ def fn_fixture_pretrained_model_dir():
         yield test_pretrained_models_dir
 
     finally:
-        shutil.rmtree(test_pretrained_models_dir)
+        # shutil.rmtree(test_pretrained_models_dir)
+        pass
 
 
 @pytest.fixture(name="fixture_sbert_model", scope="session")
@@ -44,6 +46,18 @@ def fn_fixture_sbert_model(fixture_pretrained_model_dir: str):
         check_cached=True,
         check_model_hash=True,
     )
+
+    sbert = sentence_transformers.SentenceTransformer(
+        os.path.join(fixture_pretrained_model_dir, model_name),
+        device="cpu",
+    )
+
+    yield sbert
+
+
+@pytest.fixture(name="fixture_labse_model", scope="session")
+def fn_fixture_labse_model(fixture_pretrained_model_dir: str):
+    model_name = "sentence-transformers_LaBSE_30000"
 
     sbert = sentence_transformers.SentenceTransformer(
         os.path.join(fixture_pretrained_model_dir, model_name),

@@ -4,7 +4,7 @@ requires = ["flit_core >=3.2,<4"]
 
 [project]
 name = "otimizador"
-version = "0.1.1"
+version = "0.2.0"
 description = "Optimization methods for Ulysses pretrained models."
 authors = [
     {name="felsiq", email= "felipe.siqueira@usp.br"}
@@ -14,10 +14,10 @@ requires-python = ">=3.7"
 
 dependencies = [
     "tqdm >= 4.64.0",
-    "optimum[onnxruntime] >= 1.1.0",
-    "onnxruntime >= 1.11.1",
+    "optimum[onnxruntime] >= 1.6.4",
+    "onnxruntime >= 1.12.1",
     "numpy >= 1.21.6",
-    "transformers >= 4.6.0,<5.0.0",
+    "transformers >= 4.6.2,<5.0.0",
     "regex >= 2021.4.4",
     "colorama >= 0.4.4",
 ]
@@ -28,15 +28,15 @@ sentence = [
 ]
 
 dev = [
-    "black >= 22.1.0",
-    "tox >= 3.24.5",
-    "mypy >= 0.942",
-    "pylint >= 2.13.5",
-    "pytest >= 7.1.0",
-    "pytest-cov >= 3.0.0",
-    "pytest-html >= 3.1.1",
-    "pytest-socket >= 0.5.1",
-    "grip >= 4.6.0",
+    "black == 23.1.0",
+    "tox == 3.24.5",
+    "mypy == 1.0.0",
+    "pylint == 2.13.5",
+    "pytest == 7.1.0",
+    "pytest-cov == 3.0.0",
+    "pytest-html == 3.1.1",
+    "pytest-socket == 0.5.1",
+    "grip == 4.6.0",
     "buscador @ git+https://github.com/ulysses-camara/ulysses-fetcher@v0.1.1-beta",
 ]
 
@@ -67,7 +67,7 @@ testpaths = [
 ]
 
 [tool.pylint.messages_control]
-generated-members = "torch.*"
+generated-members = "torch.*,optimum.onnxruntime.*"
 jobs = 4
 disable = """
     too-few-public-methods,

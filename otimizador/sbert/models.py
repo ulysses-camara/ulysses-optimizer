@@ -6,15 +6,83 @@ import typing as t
 import numpy as np
 import numpy.typing as npt
 import torch
+import torch.nn.functional
 import transformers
+import optimum.onnxruntime
 import tqdm.auto
-
-from .. import optional_import_utils
 
 
 __all__ = [
     "ONNXSBERT",
 ]
+
+
+def _pool_fn_mean(model_output: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    token_embeddings = model_output[0]
+    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+    sentence_embedding = torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(
+        input_mask_expanded.sum(1), min=1e-9
+    )
+    print(sentence_embedding.shape)
+    return sentence_embedding
+
+
+def _pool_fn_cls(model_output: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    # pylint: disable='unused-argument'
+    token_embeddings = model_output[0]
+    cls_token_emb = token_embeddings[:, 0, :]
+    return cls_token_emb
+
+
+class _SentenceEmbeddingPipeline(transformers.Pipeline):
+    # pylint: disable='unused-argument'
+    def __init__(
+        self,
+        *args: t.Any,
+        pooling_function: str = "mean",
+        normalize_embeddings: bool = False,
+        **kwargs: t.Any,
+    ):
+        super().__init__(*args, **kwargs)
+
+        if pooling_function == "mean":
+            self.pool_fn = _pool_fn_mean
+        else:
+            self.pool_fn = _pool_fn_cls
+
+        self.normalize_embeddings = normalize_embeddings
+
+    def _sanitize_parameters(self, **kwargs: t.Any) -> t.Tuple[t.Dict[str, t.Any], ...]:
+        preprocess_kwargs = {
+            "max_length": int(kwargs.get("max_length", 512)),
+        }
+        return preprocess_kwargs, {}, {}
+
+    def preprocess(
+        self, input_: t.List[str], max_length: int = 512, **kwargs: t.Any
+    ) -> t.Dict[str, torch.Tensor]:
+        return self.tokenizer(  # type: ignore
+            input_, padding="longest", truncation=True, return_tensors="pt", max_length=max_length
+        )
+
+    def _forward(
+        self, input_tensors: t.Dict[str, torch.Tensor], **kwargs: t.Any
+    ) -> t.Dict[str, torch.Tensor]:
+        outputs = self.model(**input_tensors)
+        return {"logits": outputs, "attention_mask": input_tensors["attention_mask"]}
+
+    def postprocess(
+        self, model_outputs: t.Dict[str, torch.Tensor], **kwargs: t.Any
+    ) -> torch.Tensor:
+        sentence_embeddings = self.pool_fn(
+            model_outputs["logits"],
+            model_outputs["attention_mask"]
+        )
+
+        if self.normalize_embeddings:
+            sentence_embeddings = torch.nn.functional.normalize(sentence_embeddings, p=2, dim=1)
+
+        return sentence_embeddings
 
 
 class ONNXSBERT:
@@ -43,29 +111,30 @@ class ONNXSBERT:
     def __init__(
         self,
         uri_model: str,
-        uri_tokenizer: str,
+        uri_tokenizer: t.Optional[str] = None,
         local_files_only: bool = True,
         cache_dir_tokenizer: str = "./cache/tokenizers",
+        pooling_function: str = "mean",
+        normalize_embeddings: bool = False,
     ):
         self.tokenizer = transformers.BertTokenizer.from_pretrained(
-            uri_tokenizer,
+            uri_tokenizer or uri_model,
             local_files_only=local_files_only,
             cache_dir=cache_dir_tokenizer,
             use_fast=True,
         )
 
-        optional_import_utils.load_required_module("onnxruntime")
-
-        import onnxruntime  # pylint: disable='import-error'
-
-        sess_options = onnxruntime.SessionOptions()
-        sess_options.graph_optimization_level = (
-            onnxruntime.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+        self._model = optimum.onnxruntime.ORTModelForFeatureExtraction.from_pretrained(
+            uri_model,
+            from_transformers=False,
+            local_files_only=True,
         )
 
-        self._model: onnxruntime.InferenceSession = onnxruntime.InferenceSession(
-            path_or_bytes=uri_model,
-            sess_options=sess_options,
+        self._pipeline = _SentenceEmbeddingPipeline(
+            model=self.model,
+            tokenizer=self.tokenizer,
+            pooling_function=pooling_function,
+            normalize_embeddings=normalize_embeddings,
         )
 
     @property
@@ -90,75 +159,18 @@ class ONNXSBERT:
         **kwargs: t.Any,
     ) -> npt.NDArray[np.float64]:
         """Predict a tokenized minibatch."""
-        # pylint: disable='unused-argument'
-        model_out_list: t.List[npt.NDArray[np.float64]] = []
+        # pylint: disable='unused-argument,invalid-name'
+        n = len(sequences)
+        logits = np.empty((n, 768), dtype=float)
 
-        for i_start in tqdm.auto.tqdm(
-            range(0, len(sequences), batch_size), disable=not show_progress_bar
-        ):
-            i_end = i_start + batch_size
-
-            minibatch = self.tokenizer(
-                sequences[i_start:i_end],
-                return_tensors="np",
-                truncation=True,
-                padding="longest",
-                max_length=512,
-            )
-
-            minibatch = {key: np.atleast_2d(val) for key, val in minibatch.items()}
-
-            model_out: t.List[npt.NDArray[np.float64]] = self._model.run(
-                output_names=["sentence_embedding"],
-                input_feed=minibatch,
-                run_options=None,
-            )
-
-            model_out_list.extend(model_out)
-
-        logits = np.vstack(model_out_list)
-
-        if logits.ndim >= 3:
-            logits = logits.squeeze(0)
+        with torch.no_grad():
+            for i_start in tqdm.auto.tqdm(range(0, n, batch_size), disable=not show_progress_bar):
+                i_end = i_start + batch_size
+                batch = sequences[i_start:i_end]
+                out = self._pipeline(batch)
+                logits[i_start:i_end, :] = np.vstack([inst.to("cpu").numpy() for inst in out])
 
         return logits
 
     def __call__(self, *args: t.Any, **kwargs: t.Any) -> npt.NDArray[np.float64]:
         return self.encode(*args, **kwargs)
-
-
-class ONNXSBERTSurrogate(transformers.BertModel):
-    """Create a temporary container class for SBERT + Average Pooler.
-
-    This container is used only during the creation and quantization of ONNX files.
-    This class should not be employed for production inference.
-    """
-
-    # pylint: disable='line-too-long,abstract-method,arguments-differ,no-member'
-    # Adapted from: https://github.com/UKPLab/sentence-transformers/blob/cb08d92822ffcab9915564fd327e6579a5ed5830/examples/onnx_inference/onnx_inference.ipynb
-    def __init__(self, config: transformers.BertConfig, *args: t.Any, **kwargs: t.Any):
-        super().__init__(config, *args, **kwargs)
-        self.sentence_embedding = torch.nn.Identity()
-
-    def forward(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor, token_type_ids: torch.Tensor
-    ) -> torch.Tensor:
-        out: torch.Tensor = (
-            super()  # type: ignore
-            .forward(
-                input_ids,
-                attention_mask=attention_mask,
-                token_type_ids=token_type_ids,
-            )
-            .last_hidden_state
-        )
-
-        # Average pooling
-        input_mask_expanded = attention_mask.unsqueeze(-1).expand(out.size())
-        sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-
-        out = torch.sum(out * input_mask_expanded, 1)
-        out = out / sum_mask
-        out = self.sentence_embedding(out)
-
-        return out
