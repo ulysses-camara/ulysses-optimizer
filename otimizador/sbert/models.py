@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import typing as t
+import os
 
 import numpy as np
 import numpy.typing as npt
 import torch
 import torch.nn.functional
 import transformers
+import sentence_transformers
 import optimum.onnxruntime
 import tqdm.auto
+
+from . import core
 
 
 __all__ = [
@@ -17,40 +21,13 @@ __all__ = [
 ]
 
 
-def _pool_fn_mean(model_output: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-    token_embeddings = model_output[0]
-    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-    sentence_embedding = torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(
-        input_mask_expanded.sum(1), min=1e-9
-    )
-    print(sentence_embedding.shape)
-    return sentence_embedding
-
-
-def _pool_fn_cls(model_output: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-    # pylint: disable='unused-argument'
-    token_embeddings = model_output[0]
-    cls_token_emb = token_embeddings[:, 0, :]
-    return cls_token_emb
-
-
 class _SentenceEmbeddingPipeline(transformers.Pipeline):
     # pylint: disable='unused-argument'
     def __init__(
-        self,
-        *args: t.Any,
-        pooling_function: str = "mean",
-        normalize_embeddings: bool = False,
-        **kwargs: t.Any,
+        self, *args: t.Any, postprocessing_layers: t.List[torch.nn.Module], **kwargs: t.Any
     ):
         super().__init__(*args, **kwargs)
-
-        if pooling_function == "mean":
-            self.pool_fn = _pool_fn_mean
-        else:
-            self.pool_fn = _pool_fn_cls
-
-        self.normalize_embeddings = normalize_embeddings
+        self.postprocessing_layers = postprocessing_layers
 
     def _sanitize_parameters(self, **kwargs: t.Any) -> t.Tuple[t.Dict[str, t.Any], ...]:
         preprocess_kwargs = {
@@ -69,20 +46,17 @@ class _SentenceEmbeddingPipeline(transformers.Pipeline):
         self, input_tensors: t.Dict[str, torch.Tensor], **kwargs: t.Any
     ) -> t.Dict[str, torch.Tensor]:
         outputs = self.model(**input_tensors)
-        return {"logits": outputs, "attention_mask": input_tensors["attention_mask"]}
+        return {"token_embeddings": outputs[0], "attention_mask": input_tensors["attention_mask"]}
 
     def postprocess(
         self, model_outputs: t.Dict[str, torch.Tensor], **kwargs: t.Any
     ) -> torch.Tensor:
-        sentence_embeddings = self.pool_fn(
-            model_outputs["logits"],
-            model_outputs["attention_mask"]
-        )
+        out = model_outputs
 
-        if self.normalize_embeddings:
-            sentence_embeddings = torch.nn.functional.normalize(sentence_embeddings, p=2, dim=1)
+        for layer in self.postprocessing_layers:
+            out = layer(out)
 
-        return sentence_embeddings
+        return out["sentence_embedding"]
 
 
 class ONNXSBERT:
@@ -114,8 +88,6 @@ class ONNXSBERT:
         uri_tokenizer: t.Optional[str] = None,
         local_files_only: bool = True,
         cache_dir_tokenizer: str = "./cache/tokenizers",
-        pooling_function: str = "mean",
-        normalize_embeddings: bool = False,
     ):
         self.tokenizer = transformers.BertTokenizer.from_pretrained(
             uri_tokenizer or uri_model,
@@ -130,12 +102,31 @@ class ONNXSBERT:
             local_files_only=True,
         )
 
+        self._emb_dim = 768
+
+        if hasattr(self._model.config, "pooler_fc_size"):
+            self._emb_dim = int(self._model.config.pooler_fc_size)
+
+        elif hasattr(self._model.config, "hidden_size"):
+            self._emb_dim = int(self._model.config.hidden_size)
+
         self._pipeline = _SentenceEmbeddingPipeline(
             model=self.model,
             tokenizer=self.tokenizer,
-            pooling_function=pooling_function,
-            normalize_embeddings=normalize_embeddings,
+            postprocessing_layers=self._read_postprocessing_modules(uri_model),
         )
+
+    @staticmethod
+    def _read_postprocessing_modules(base_dir: str) -> t.List[torch.nn.Module]:
+        submodules = core.read_additional_submodules(source_dir=base_dir)
+        postprocessing_modules: t.List[torch.nn.Module] = []
+
+        for submodule in submodules:
+            submodule_type = os.path.basename(submodule).split("_")[-1]
+            new_submodule = getattr(sentence_transformers.models, submodule_type).load(submodule)
+            postprocessing_modules.append(new_submodule)
+
+        return postprocessing_modules
 
     @property
     def model(self) -> onnxruntime.InferenceSession:  # type: ignore
@@ -154,14 +145,14 @@ class ONNXSBERT:
     def encode(
         self,
         sequences: t.List[str],
-        batch_size: int = 32,
+        batch_size: int = 8,
         show_progress_bar: bool = True,
         **kwargs: t.Any,
     ) -> npt.NDArray[np.float64]:
         """Predict a tokenized minibatch."""
         # pylint: disable='unused-argument,invalid-name'
         n = len(sequences)
-        logits = np.empty((n, 768), dtype=float)
+        logits = np.empty((n, self._emb_dim), dtype=float)
 
         with torch.no_grad():
             for i_start in tqdm.auto.tqdm(range(0, n, batch_size), disable=not show_progress_bar):

@@ -14,15 +14,36 @@ from .. import utils
 
 __all__ = [
     "quantize_as_onnx",
+    "read_additional_submodules",
 ]
 
 
-def copy_aditional_submodules(source_dir: str, target_dir: str, submodule_pattern: str = r"[0-9]+_[A-Z][a-z]*") -> None:
+def read_additional_submodules(
+    source_dir: str, submodule_pattern: str = r"[0-9]+_[A-Z][a-z]*"
+) -> t.List[str]:
     """TODO"""
     source_dir = utils.expand_path(source_dir)
     submodules = glob.glob(os.path.join(source_dir, "*"))
-    submodules = [submodule for submodule in submodules if re.match(submodule_pattern, os.path.basename(submodule)))]
-    shutfil.copytree(submodule, target_dir, dirs_exist_ok=True)
+    submodules = [
+        submodule
+        for submodule in submodules
+        if re.match(submodule_pattern, os.path.basename(submodule))
+    ]
+    return submodules
+
+
+def copy_aditional_submodules(
+    source_dir: str, target_dir: str, submodule_pattern: str = r"[0-9]+_[A-Z][a-z]*"
+) -> None:
+    """TODO"""
+    submodules = read_additional_submodules(
+        source_dir=source_dir, submodule_pattern=submodule_pattern
+    )
+    for submodule in submodules:
+        submodule_name = os.path.basename(submodule)
+        shutil.copytree(
+            src=submodule, dst=os.path.join(target_dir, submodule_name), dirs_exist_ok=True
+        )
 
 
 def quantize_as_onnx(
@@ -34,7 +55,14 @@ def quantize_as_onnx(
     operators_to_quantize: t.Tuple[str, ...] = (
         "MatMul",
         "Add",
+        "Mul",
+        "Div",
+        "Tanh",
+        "Slice",
+        "Unsqueeze",
         "Gather",
+        "LayerNormalization",
+        "SkipLayerNormalization",
         "EmbedLayerNormalization",
         "Attention",
     ),

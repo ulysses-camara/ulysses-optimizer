@@ -57,10 +57,10 @@ def fn_fixture_sbert_model(fixture_pretrained_model_dir: str):
 
 @pytest.fixture(name="fixture_labse_model", scope="session")
 def fn_fixture_labse_model(fixture_pretrained_model_dir: str):
-    model_name = "sentence-transformers_LaBSE_30000"
+    model_name = "sentence-transformers/LaBSE"
 
     sbert = sentence_transformers.SentenceTransformer(
-        os.path.join(fixture_pretrained_model_dir, model_name),
+        model_name,
         device="cpu",
     )
 
