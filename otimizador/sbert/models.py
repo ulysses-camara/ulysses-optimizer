@@ -152,6 +152,9 @@ class ONNXSBERT:
     ) -> npt.NDArray[np.float64]:
         """Predict a tokenized minibatch."""
         # pylint: disable='unused-argument,invalid-name'
+        if not isinstance(sequences, list):
+            sequences = list(sequences)
+
         n = len(sequences)
         logits = np.empty((n, self._emb_dim), dtype=float)
 
