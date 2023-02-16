@@ -147,6 +147,7 @@ class ONNXSBERT:
         sequences: t.List[str],
         batch_size: int = 8,
         show_progress_bar: bool = True,
+        normalize_embeddings: bool = False,
         **kwargs: t.Any,
     ) -> npt.NDArray[np.float64]:
         """Predict a tokenized minibatch."""
@@ -160,6 +161,9 @@ class ONNXSBERT:
                 batch = sequences[i_start:i_end]
                 out = self._pipeline(batch)
                 logits[i_start:i_end, :] = np.vstack([inst.to("cpu").numpy() for inst in out])
+
+        if logits.size and normalize_embeddings:
+            logits /= 1e-12 + np.linalg.norm(logits, axis=-1, ord=2, keepdims=True)
 
         return logits
 
