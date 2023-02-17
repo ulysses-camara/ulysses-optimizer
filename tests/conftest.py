@@ -39,12 +39,12 @@ def fn_fixture_pretrained_model_dir():
 def fn_fixture_sbert_model(fixture_pretrained_model_dir: str):
     model_name = "distil_sbert_br_ctimproved_12_epochs_v1"
 
-    buscador.download_model(
+    buscador.download_resource(
         task_name="sentence_similarity",
-        model_name=model_name,
+        resource_name=model_name,
         output_dir=fixture_pretrained_model_dir,
         check_cached=True,
-        check_model_hash=True,
+        check_resource_hash=True,
     )
 
     sbert = sentence_transformers.SentenceTransformer(
@@ -57,10 +57,18 @@ def fn_fixture_sbert_model(fixture_pretrained_model_dir: str):
 
 @pytest.fixture(name="fixture_labse_model", scope="session")
 def fn_fixture_labse_model(fixture_pretrained_model_dir: str):
-    model_name = "sentence-transformers/LaBSE"
+    model_name = "ulysses_LaBSE_30000"
+
+    buscador.download_resource(
+        task_name="sentence_similarity",
+        resource_name=model_name,
+        output_dir=fixture_pretrained_model_dir,
+        check_cached=True,
+        check_resource_hash=True,
+    )
 
     sbert = sentence_transformers.SentenceTransformer(
-        model_name,
+        os.path.join(fixture_pretrained_model_dir, model_name),
         device="cpu",
     )
 

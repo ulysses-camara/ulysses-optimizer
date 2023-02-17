@@ -6,8 +6,12 @@ import random
 import shutil
 import glob
 import re
+import functools
 
 import optimum.onnxruntime
+import optimum.onnxruntime.preprocessors.passes
+import datasets
+import transformers
 
 from .. import utils
 
@@ -29,6 +33,9 @@ def read_additional_submodules(
         for submodule in submodules
         if re.match(submodule_pattern, os.path.basename(submodule))
     ]
+    submodules = sorted(
+        submodules, key=lambda submodule: int(os.path.basename(submodule).split("_")[0])
+    )
     return submodules
 
 
@@ -46,27 +53,30 @@ def copy_aditional_submodules(
         )
 
 
+def preprocess_function(examples, tokenizer, data_key: str = "text"):
+    return tokenizer(examples[data_key], padding="max_length", max_length=128, truncation=True)
+
+
 def quantize_as_onnx(
     model_uri: str,
     quantized_model_filename: t.Optional[str] = None,
+    optimized_model_filename: t.Optional[str] = None,
     intermediary_onnx_model_name: t.Optional[str] = None,
     quantized_model_dirpath: str = "./quantized_models",
     device: str = "cpu",
     operators_to_quantize: t.Tuple[str, ...] = (
         "MatMul",
-        "Add",
-        "Mul",
-        "Div",
-        "Tanh",
-        "Slice",
-        "Unsqueeze",
-        "Gather",
+        "Attention",
         "LayerNormalization",
         "SkipLayerNormalization",
-        "EmbedLayerNormalization",
-        "Attention",
+        "Mul",
+        "Div",
+        "Add",
+        "Gather",
     ),
     check_cached: bool = True,
+    apply_static_quantization: bool = False,
+    optimize_before_quantization: bool = True,
     save_intermediary_onnx_model: bool = False,
     verbose: bool = False,
 ) -> utils.QuantizationOutputONNX:
@@ -79,6 +89,9 @@ def quantize_as_onnx(
 
     quantized_model_filename : str or None, default=None
         Output filename.
+
+    optimized_model_filename : str or None, deault=None
+        TODO
 
     intermediary_onnx_model_name : str or None, default=None
         Name to save intermediary model in ONNX format in `quantized_model_dirpath`. This
@@ -95,6 +108,12 @@ def quantize_as_onnx(
     check_cached : bool, default=True
         If True, check whether a model with the same model exists before quantization.
         If this happens to be the case, this function will not produce any new models.
+
+    apply_static_quantization : bool, default=False
+        TODO
+
+    optimize_before_quantization : bool, default=True
+        TODO
 
     save_intermediary_onnx_model : bool, default=False
         TODO
@@ -122,12 +141,11 @@ def quantize_as_onnx(
         intermediary_onnx_model_name=intermediary_onnx_model_name,
     )
 
+    onnx_base_uri = paths.onnx_base_uri.replace(".onnx", "_onnx")
     quantized_model_uri = paths.output_uri.replace(".onnx", "_onnx")
 
     paths = utils.QuantizationOutputONNX(
-        onnx_base_uri=(
-            paths.onnx_base_uri if save_intermediary_onnx_model else quantized_model_uri
-        ),
+        onnx_base_uri=(onnx_base_uri if save_intermediary_onnx_model else quantized_model_uri),
         onnx_quantized_uri=quantized_model_uri,
         output_uri=quantized_model_uri,
     )
@@ -155,14 +173,23 @@ def quantize_as_onnx(
     )
 
     quantization_config = optimum.onnxruntime.configuration.QuantizationConfig(
-        is_static=False,
-        format=optimum.onnxruntime.quantization.QuantFormat.QOperator,
-        mode=optimum.onnxruntime.quantization.QuantizationMode.IntegerOps,
-        activations_dtype=optimum.onnxruntime.quantization.QuantType.QUInt8,
+        is_static=apply_static_quantization,
+        format=optimum.onnxruntime.quantization.QuantFormat.QDQ
+        if apply_static_quantization
+        else optimum.onnxruntime.quantization.QuantFormat.QOperator,
+        mode=optimum.onnxruntime.quantization.QuantizationMode.QLinearOps
+        if apply_static_quantization
+        else optimum.onnxruntime.quantization.QuantizationMode.IntegerOps,
+        activations_dtype=optimum.onnxruntime.quantization.QuantType.QInt8
+        if apply_static_quantization
+        else optimum.onnxruntime.quantization.QuantType.QUInt8,
         weights_dtype=optimum.onnxruntime.quantization.QuantType.QInt8,
-        per_channel=True,
+        per_channel=not apply_static_quantization,
         operators_to_quantize=list(operators_to_quantize),
     )
+    quant_ranges = None
+    quant_preprocessor = None
+    onnx_augmented_model_name = None
 
     ort_model = optimum.onnxruntime.ORTModelForFeatureExtraction.from_pretrained(
         model_uri,
@@ -174,40 +201,117 @@ def quantize_as_onnx(
         ort_model.save_pretrained(paths.onnx_base_uri)
         copy_aditional_submodules(source_dir=model_uri, target_dir=paths.onnx_base_uri)
 
-    optimizer = optimum.onnxruntime.ORTOptimizer.from_pretrained(ort_model)
+    if optimize_before_quantization:
+        optimizer = optimum.onnxruntime.ORTOptimizer.from_pretrained(ort_model)
 
-    temp_optimized_model_uri = "_".join(
-        [
-            "temp_optimized_sbert",
-            datetime.datetime.utcnow().strftime("%Y_%m_%d__%H_%M_%S"),
-            hex(random.getrandbits(128))[2:],
-        ]
-    )
-    temp_optimized_model_uri = os.path.join(quantized_model_dirpath, temp_optimized_model_uri)
+        temp_optimized_model_uri = "_".join(
+            [
+                "temp_optimized_sbert",
+                datetime.datetime.utcnow().strftime("%Y_%m_%d__%H_%M_%S"),
+                hex(random.getrandbits(128))[2:],
+            ]
+        )
 
-    optimizer.optimize(
-        save_dir=temp_optimized_model_uri,
-        file_suffix="",
-        optimization_config=optimization_config,
-    )
+        if optimized_model_filename:
+            optimized_model_filename = os.path.join(
+                quantized_model_dirpath, optimized_model_filename
+            )
+
+        temp_optimized_model_uri = os.path.join(quantized_model_dirpath, temp_optimized_model_uri)
+
+        optimizer.optimize(
+            save_dir=optimized_model_filename or temp_optimized_model_uri,
+            file_suffix="",
+            optimization_config=optimization_config,
+        )
+
+        if optimized_model_filename:
+            copy_aditional_submodules(source_dir=model_uri, target_dir=optimized_model_filename)
+
+    else:
+        temp_optimized_model_uri = model_uri
 
     try:
         ort_model = optimum.onnxruntime.ORTModelForFeatureExtraction.from_pretrained(
-            temp_optimized_model_uri,
+            optimized_model_filename or temp_optimized_model_uri,
+            from_transformers=not optimize_before_quantization,
             local_files_only=True,
         )
 
         quantizer = optimum.onnxruntime.ORTQuantizer.from_pretrained(ort_model)
 
+        if apply_static_quantization:
+            # Create the calibration dataset used for the calibration step
+            tokenizer = transformers.AutoTokenizer.from_pretrained(
+                model_uri,
+                local_files_only=True,
+            )
+
+            calibration_dataset_uri = (
+                "/media/nvme/sentence-model/ulysses_tesemo_v2_subset_static_quantization"
+            )
+            calibration_dataset_uri = os.path.abspath(calibration_dataset_uri)
+
+            calibration_dataset = datasets.load_from_disk(calibration_dataset_uri)
+            calibration_dataset = calibration_dataset.map(
+                functools.partial(preprocess_function, tokenizer=tokenizer),
+                remove_columns="text",
+            )
+
+            calibration_config = (
+                optimum.onnxruntime.configuration.AutoCalibrationConfig.percentiles(
+                    calibration_dataset, percentile=99.999
+                )
+            )
+            onnx_augmented_model_name = os.path.join(
+                quantized_model_dirpath, "augmented_model.onnx"
+            )
+
+            # Perform the calibration step: computes the activations quantization ranges
+            quant_ranges = quantizer.fit(
+                dataset=calibration_dataset,
+                calibration_config=calibration_config,
+                operators_to_quantize=quantization_config.operators_to_quantize,
+                batch_size=8,
+                onnx_augmented_model_name=onnx_augmented_model_name,
+            )
+
+            quant_preprocessor = optimum.onnxruntime.preprocessors.QuantizationPreprocessor()
+            quant_preprocessor.register_pass(
+                optimum.onnxruntime.preprocessors.passes.ExcludeLayerNormNodes()
+            )
+            quant_preprocessor.register_pass(
+                optimum.onnxruntime.preprocessors.passes.ExcludeGeLUNodes()
+            )
+            quant_preprocessor.register_pass(
+                optimum.onnxruntime.preprocessors.passes.ExcludeNodeAfter("Add", "Add")
+            )
+            quant_preprocessor.register_pass(
+                optimum.onnxruntime.preprocessors.passes.ExcludeNodeAfter("Gather", "Add")
+            )
+            quant_preprocessor.register_pass(
+                optimum.onnxruntime.preprocessors.passes.ExcludeNodeFollowedBy("Add", "Softmax")
+            )
+
         quantizer.quantize(
             save_dir=paths.onnx_quantized_uri,
             file_suffix="quantized",
             quantization_config=quantization_config,
+            calibration_tensors_range=quant_ranges,
+            preprocessor=quant_preprocessor,
         )
 
         copy_aditional_submodules(source_dir=model_uri, target_dir=paths.onnx_quantized_uri)
 
     finally:
-        shutil.rmtree(temp_optimized_model_uri)
+        if (
+            optimize_before_quantization
+            and temp_optimized_model_uri != model_uri
+            and os.path.exists(temp_optimized_model_uri)
+        ):
+            shutil.rmtree(temp_optimized_model_uri)
+
+        if onnx_augmented_model_name is not None:
+            os.remove(onnx_augmented_model_name)
 
     return paths

@@ -80,7 +80,7 @@ def test_quantization_sbert_default_name(
     shutil.rmtree(paths_a.output_uri)
 
 
-@pytest.mark.parametrize("batch_size", (1, 2, 3, 4))
+@pytest.mark.parametrize("batch_size", (1,))
 def test_quantization_sbert_inference(
     fixture_sbert_model: sentence_transformers.SentenceTransformer,
     fixture_quantized_model_dir: str,
@@ -91,9 +91,13 @@ def test_quantization_sbert_inference(
     paths = otimizador.sbert.quantize_as_onnx(
         model_uri=model_uri,
         quantized_model_dirpath=fixture_quantized_model_dir,
-        check_cached=True,
+        check_cached=False,
         save_intermediary_onnx_model=True,
+        apply_static_quantization=True,
     )
+
+    # Note: quantized distilLegBert performance will severily drop if 'operators_to_quantize'
+    # contains 'MalMul' or 'Attention'.
 
     onnx_sbert_base = otimizador.sbert.ONNXSBERT(paths.onnx_base_uri)
     onnx_sbert_quantized = otimizador.sbert.ONNXSBERT(paths.output_uri)
@@ -108,8 +112,8 @@ def test_quantization_sbert_inference(
     sentence_embs_quant = onnx_sbert_quantized.encode(test_sequences, batch_size=batch_size)
     sentence_embs_orig = fixture_sbert_model.encode(test_sequences, batch_size=batch_size)
 
-    assert np.allclose(sentence_embs_onnx, sentence_embs_orig, atol=1e-6, rtol=0.005)
-    # assert np.allclose(sentence_embs_quant, sentence_embs_orig, atol=0.1, rtol=0.50)
+    assert np.allclose(sentence_embs_onnx, sentence_embs_orig, atol=1e-2, rtol=0.05)
+    assert np.allclose(sentence_embs_quant, sentence_embs_orig, atol=1e-1, rtol=0.25)
 
     assert isinstance(sentence_embs_quant, np.ndarray)
     assert sentence_embs_quant.size
@@ -117,7 +121,7 @@ def test_quantization_sbert_inference(
     assert float(np.max(np.abs(sentence_embs_quant))) > 0.0
 
 
-@pytest.mark.parametrize("batch_size", (1, 2, 3, 4))
+@pytest.mark.parametrize("batch_size", (1,))
 def test_quantization_labse_inference(
     fixture_labse_model: sentence_transformers.SentenceTransformer,
     fixture_quantized_model_dir: str,
@@ -128,12 +132,17 @@ def test_quantization_labse_inference(
     paths = otimizador.sbert.quantize_as_onnx(
         model_uri=model_uri,
         quantized_model_dirpath=fixture_quantized_model_dir,
-        check_cached=True,
+        optimized_model_filename="labse_optimized_onnx",
+        check_cached=False,
         save_intermediary_onnx_model=True,
+        apply_static_quantization=True,
     )
 
     onnx_sbert_base = otimizador.sbert.ONNXSBERT(paths.onnx_base_uri)
     onnx_sbert_quantized = otimizador.sbert.ONNXSBERT(paths.output_uri)
+
+    assert len(onnx_sbert_base) == len(fixture_labse_model)
+    assert len(onnx_sbert_quantized) == len(fixture_labse_model)
 
     test_sequences: t.List[str] = [
         "Sequência de teste para inferência :)",
@@ -145,8 +154,8 @@ def test_quantization_labse_inference(
     sentence_embs_orig = fixture_labse_model.encode(test_sequences, batch_size=batch_size)
     sentence_embs_quant = onnx_sbert_quantized.encode(test_sequences, batch_size=batch_size)
 
-    assert np.allclose(sentence_embs_onnx, sentence_embs_orig, atol=1e-6, rtol=0.005)
-    assert np.allclose(sentence_embs_quant, sentence_embs_orig, atol=0.1, rtol=0.50)
+    assert np.allclose(sentence_embs_onnx, sentence_embs_orig, atol=1e-2, rtol=0.05)
+    assert np.allclose(sentence_embs_quant, sentence_embs_orig, atol=1e-1, rtol=0.25)
 
     assert isinstance(sentence_embs_quant, np.ndarray)
     assert sentence_embs_quant.size

@@ -24,10 +24,13 @@ __all__ = [
 class _SentenceEmbeddingPipeline(transformers.Pipeline):
     # pylint: disable='unused-argument'
     def __init__(
-        self, *args: t.Any, postprocessing_layers: t.List[torch.nn.Module], **kwargs: t.Any
+        self, *args: t.Any, postprocessing_modules: t.List[torch.nn.Module], **kwargs: t.Any
     ):
         super().__init__(*args, **kwargs)
-        self.postprocessing_layers = postprocessing_layers
+        self.postprocessing_modules = postprocessing_modules
+
+    def __len__(self) -> int:
+        return 1 + len(self.postprocessing_modules)
 
     def _sanitize_parameters(self, **kwargs: t.Any) -> t.Tuple[t.Dict[str, t.Any], ...]:
         preprocess_kwargs = {
@@ -53,7 +56,7 @@ class _SentenceEmbeddingPipeline(transformers.Pipeline):
     ) -> torch.Tensor:
         out = model_outputs
 
-        for layer in self.postprocessing_layers:
+        for layer in self.postprocessing_modules:
             out = layer(out)
 
         return out["sentence_embedding"]
@@ -113,8 +116,19 @@ class ONNXSBERT:
         self._pipeline = _SentenceEmbeddingPipeline(
             model=self.model,
             tokenizer=self.tokenizer,
-            postprocessing_layers=self._read_postprocessing_modules(uri_model),
+            postprocessing_modules=self._read_postprocessing_modules(uri_model),
         )
+
+    def __len__(self) -> int:
+        return len(self._pipeline)
+
+    def __str__(self) -> str:
+        parts: t.List[str] = [f"{self.__class__.__name__}("]
+        parts.append(f"  (0): {str(self._model)}")
+        for i, layer in enumerate(self._pipeline.postprocessing_modules, 1):
+            parts.append(f"  ({i}): {layer}")
+        parts.append(")")
+        return "\n".join(parts)
 
     @staticmethod
     def _read_postprocessing_modules(base_dir: str) -> t.List[torch.nn.Module]:
@@ -148,6 +162,7 @@ class ONNXSBERT:
         batch_size: int = 8,
         show_progress_bar: bool = True,
         normalize_embeddings: bool = False,
+        assume_sorted: bool = False,
         **kwargs: t.Any,
     ) -> npt.NDArray[np.float64]:
         """Predict a tokenized minibatch."""
@@ -158,12 +173,17 @@ class ONNXSBERT:
         n = len(sequences)
         logits = np.empty((n, self._emb_dim), dtype=float)
 
+        if not assume_sorted:
+            inds = np.argsort([-len(item) for item in sequences])
+        else:
+            inds = np.arange(n)
+
         with torch.no_grad():
             for i_start in tqdm.auto.tqdm(range(0, n, batch_size), disable=not show_progress_bar):
                 i_end = i_start + batch_size
-                batch = sequences[i_start:i_end]
-                out = self._pipeline(batch)
-                logits[i_start:i_end, :] = np.vstack([inst.to("cpu").numpy() for inst in out])
+                batch = [sequences[k] for k in inds[i_start:i_end]]
+                out = self._pipeline(batch, batch_size=len(batch))
+                logits[inds[i_start:i_end], :] = np.vstack([inst.to("cpu").numpy() for inst in out])
 
         if logits.size and normalize_embeddings:
             logits /= 1e-12 + np.linalg.norm(logits, axis=-1, ord=2, keepdims=True)
