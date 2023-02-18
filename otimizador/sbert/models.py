@@ -36,7 +36,10 @@ class _SentenceEmbeddingPipeline(transformers.Pipeline):
         preprocess_kwargs = {
             "max_length": int(kwargs.get("max_length", 512)),
         }
-        return preprocess_kwargs, {}, {}
+        postprocess_kwargs = {
+            "output_value": kwargs.get("output_value", "sentence_embedding"),
+        }
+        return preprocess_kwargs, {}, postprocess_kwargs
 
     def preprocess(
         self, input_: t.List[str], max_length: int = 512, **kwargs: t.Any
@@ -52,14 +55,17 @@ class _SentenceEmbeddingPipeline(transformers.Pipeline):
         return {"token_embeddings": outputs[0], "attention_mask": input_tensors["attention_mask"]}
 
     def postprocess(
-        self, model_outputs: t.Dict[str, torch.Tensor], **kwargs: t.Any
+        self,
+        model_outputs: t.Dict[str, torch.Tensor],
+        output_value: str = "sentence_embedding",
+        **kwargs: t.Any,
     ) -> torch.Tensor:
         out = model_outputs
 
         for layer in self.postprocessing_modules:
             out = layer(out)
 
-        return out["sentence_embedding"]
+        return out[output_value]
 
 
 class ONNXSBERT:
@@ -158,37 +164,52 @@ class ONNXSBERT:
 
     def encode(
         self,
-        sequences: t.List[str],
+        sentences: t.Union[str, t.List[str]],
         batch_size: int = 8,
         show_progress_bar: bool = True,
+        output_value: str = "sentence_embedding",
+        convert_to_numpy: bool = True,
         normalize_embeddings: bool = False,
-        assume_sorted: bool = False,
         **kwargs: t.Any,
-    ) -> npt.NDArray[np.float64]:
+    ) -> t.Union[torch.Tensor, npt.NDArray[np.float64]]:
         """Predict a tokenized minibatch."""
         # pylint: disable='unused-argument,invalid-name'
-        if not isinstance(sequences, list):
-            sequences = list(sequences)
+        input_is_single_string = False
 
-        n = len(sequences)
-        logits = np.empty((n, self._emb_dim), dtype=float)
+        if isinstance(sentences, str):
+            sentences = [sentences]
+            input_is_single_string = True
 
-        if not assume_sorted:
-            inds = np.argsort([-len(item) for item in sequences])
-        else:
-            inds = np.arange(n)
+        if not isinstance(sentences, list):
+            sentences = list(sentences)
+
+        n = len(sentences)
+        embeddings = torch.empty(n, self._emb_dim, requires_grad=False)
+        length_sorted_idx = np.argsort([-len(item) for item in sentences])
+        pbar = tqdm.auto.tqdm(
+            range(0, n, batch_size), desc="Batches", disable=not show_progress_bar
+        )
 
         with torch.no_grad():
-            for i_start in tqdm.auto.tqdm(range(0, n, batch_size), disable=not show_progress_bar):
+            for i_start in pbar:
                 i_end = i_start + batch_size
-                batch = [sequences[k] for k in inds[i_start:i_end]]
-                out = self._pipeline(batch, batch_size=len(batch))
-                logits[inds[i_start:i_end], :] = np.vstack([inst.to("cpu").numpy() for inst in out])
+                batch = [str(sentences[k]) for k in length_sorted_idx[i_start:i_end]]
+                out = self._pipeline(batch, batch_size=len(batch), output_value=output_value)
+                embeddings[i_start:i_end, :] = torch.vstack(out)
 
-        if logits.size and normalize_embeddings:
-            logits /= 1e-12 + np.linalg.norm(logits, axis=-1, ord=2, keepdims=True)
+        embeddings = embeddings.to("cpu")
+        embeddings = embeddings[np.argsort(length_sorted_idx), :]
 
-        return logits
+        if embeddings.size and normalize_embeddings:
+            torch.nn.functional.normalize(embeddings, p=2, dim=-1, out=embeddings)
+
+        if convert_to_numpy:
+            return embeddings.numpy()
+
+        if input_is_single_string:
+            return embeddings[0, :]
+
+        return embeddings
 
     def __call__(self, *args: t.Any, **kwargs: t.Any) -> npt.NDArray[np.float64]:
         return self.encode(*args, **kwargs)
