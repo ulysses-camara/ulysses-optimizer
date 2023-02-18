@@ -132,10 +132,10 @@ def test_quantization_labse_inference(
     paths = otimizador.sbert.quantize_as_onnx(
         model_uri=model_uri,
         quantized_model_dirpath=fixture_quantized_model_dir,
-        optimized_model_filename="labse_optimized_onnx",
         check_cached=False,
         save_intermediary_onnx_model=True,
-        apply_static_quantization=True,
+        optimize_before_quantization=False,
+        apply_static_quantization=False,
     )
 
     onnx_sbert_base = otimizador.sbert.ONNXSBERT(paths.onnx_base_uri)

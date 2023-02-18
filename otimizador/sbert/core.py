@@ -57,12 +57,12 @@ def preprocess_function(examples, tokenizer, data_key: str = "text"):
     return tokenizer(examples[data_key], padding="max_length", max_length=128, truncation=True)
 
 
-def quantize_as_onnx(
+def to_onnx(
     model_uri: str,
     quantized_model_filename: t.Optional[str] = None,
     optimized_model_filename: t.Optional[str] = None,
-    intermediary_onnx_model_name: t.Optional[str] = None,
-    quantized_model_dirpath: str = "./quantized_models",
+    onnx_model_filename: t.Optional[str] = None,
+    output_dir: str = "./quantized_models",
     device: str = "cpu",
     operators_to_quantize: t.Tuple[str, ...] = (
         "MatMul",
@@ -75,9 +75,9 @@ def quantize_as_onnx(
         "Gather",
     ),
     check_cached: bool = True,
-    apply_static_quantization: bool = False,
+    static_quantization: bool = False,
     optimize_before_quantization: bool = True,
-    save_intermediary_onnx_model: bool = False,
+    keep_onnx_model: bool = False,
     verbose: bool = False,
 ) -> utils.QuantizationOutputONNX:
     """Quantize SBERT as ONNX format.
@@ -93,12 +93,12 @@ def quantize_as_onnx(
     optimized_model_filename : str or None, deault=None
         TODO
 
-    intermediary_onnx_model_name : str or None, default=None
-        Name to save intermediary model in ONNX format in `quantized_model_dirpath`. This
+    onnx_model_filename : str or None, default=None
+        Name to save intermediary model in ONNX format in `output_dir`. This
         transformation is necessary to perform all necessary optimization and quantization.
         If None, a name will be derived from `quantized_model_filename`.
 
-    quantized_model_dirpath : str, default='./quantized_models'
+    output_dir : str, default='./quantized_models'
         Path to output file directory, which the resulting quantized model will be stored,
         alongside any possible coproducts also generated during the quantization procedure.
 
@@ -109,13 +109,13 @@ def quantize_as_onnx(
         If True, check whether a model with the same model exists before quantization.
         If this happens to be the case, this function will not produce any new models.
 
-    apply_static_quantization : bool, default=False
+    static_quantization : bool, default=False
         TODO
 
     optimize_before_quantization : bool, default=True
         TODO
 
-    save_intermediary_onnx_model : bool, default=False
+    keep_onnx_model : bool, default=False
         TODO
 
     verbose : bool, default=False
@@ -127,7 +127,10 @@ def quantize_as_onnx(
         File URIs related from generated files during the quantization procedure. The
         final model URI can be accessed from the `output_uri` attribute.
     """
-    quantized_model_dirpath = utils.expand_path(quantized_model_dirpath)
+    output_dir = utils.expand_path(output_dir)
+
+    if not optimize_before_quantization:
+        optimized_model_filename = None
 
     model_name = os.path.basename(model_uri)
     if not model_name:
@@ -136,16 +139,16 @@ def quantize_as_onnx(
     paths = utils.build_onnx_default_uris(
         model_name="sbert",
         model_attributes={"name": model_name},
-        quantized_model_dirpath=quantized_model_dirpath,
+        output_dir=output_dir,
         quantized_model_filename=quantized_model_filename,
-        intermediary_onnx_model_name=intermediary_onnx_model_name,
+        onnx_model_filename=onnx_model_filename,
     )
 
     onnx_base_uri = paths.onnx_base_uri.replace(".onnx", "_onnx")
     quantized_model_uri = paths.output_uri.replace(".onnx", "_onnx")
 
     paths = utils.QuantizationOutputONNX(
-        onnx_base_uri=(onnx_base_uri if save_intermediary_onnx_model else quantized_model_uri),
+        onnx_base_uri=(onnx_base_uri if keep_onnx_model else quantized_model_uri),
         onnx_quantized_uri=quantized_model_uri,
         output_uri=quantized_model_uri,
     )
@@ -172,19 +175,17 @@ def quantize_as_onnx(
         optimize_for_gpu=device,
     )
 
+    ooq = optimum.onnxruntime.quantization
+
     quantization_config = optimum.onnxruntime.configuration.QuantizationConfig(
-        is_static=apply_static_quantization,
-        format=optimum.onnxruntime.quantization.QuantFormat.QDQ
-        if apply_static_quantization
-        else optimum.onnxruntime.quantization.QuantFormat.QOperator,
-        mode=optimum.onnxruntime.quantization.QuantizationMode.QLinearOps
-        if apply_static_quantization
-        else optimum.onnxruntime.quantization.QuantizationMode.IntegerOps,
-        activations_dtype=optimum.onnxruntime.quantization.QuantType.QInt8
-        if apply_static_quantization
-        else optimum.onnxruntime.quantization.QuantType.QUInt8,
-        weights_dtype=optimum.onnxruntime.quantization.QuantType.QInt8,
-        per_channel=not apply_static_quantization,
+        is_static=static_quantization,
+        format=ooq.QuantFormat.QDQ if static_quantization else ooq.QuantFormat.QOperator,
+        mode=ooq.QuantizationMode.QLinearOps
+        if static_quantization
+        else ooq.QuantizationMode.IntegerOps,
+        activations_dtype=ooq.QuantType.QInt8 if static_quantization else ooq.QuantType.QUInt8,
+        weights_dtype=ooq.QuantType.QInt8,
+        per_channel=not static_quantization,
         operators_to_quantize=list(operators_to_quantize),
     )
     quant_ranges = None
@@ -197,7 +198,7 @@ def quantize_as_onnx(
         local_files_only=True,
     )
 
-    if save_intermediary_onnx_model:
+    if keep_onnx_model:
         ort_model.save_pretrained(paths.onnx_base_uri)
         copy_aditional_submodules(source_dir=model_uri, target_dir=paths.onnx_base_uri)
 
@@ -213,11 +214,9 @@ def quantize_as_onnx(
         )
 
         if optimized_model_filename:
-            optimized_model_filename = os.path.join(
-                quantized_model_dirpath, optimized_model_filename
-            )
+            optimized_model_filename = os.path.join(output_dir, optimized_model_filename)
 
-        temp_optimized_model_uri = os.path.join(quantized_model_dirpath, temp_optimized_model_uri)
+        temp_optimized_model_uri = os.path.join(output_dir, temp_optimized_model_uri)
 
         optimizer.optimize(
             save_dir=optimized_model_filename or temp_optimized_model_uri,
@@ -240,13 +239,14 @@ def quantize_as_onnx(
 
         quantizer = optimum.onnxruntime.ORTQuantizer.from_pretrained(ort_model)
 
-        if apply_static_quantization:
+        if static_quantization:
             # Create the calibration dataset used for the calibration step
             tokenizer = transformers.AutoTokenizer.from_pretrained(
                 model_uri,
                 local_files_only=True,
             )
 
+            # TODO: remove dataset load from here.
             calibration_dataset_uri = (
                 "/media/nvme/sentence-model/ulysses_tesemo_v2_subset_static_quantization"
             )
@@ -263,9 +263,7 @@ def quantize_as_onnx(
                     calibration_dataset, percentile=99.999
                 )
             )
-            onnx_augmented_model_name = os.path.join(
-                quantized_model_dirpath, "augmented_model.onnx"
-            )
+            onnx_augmented_model_name = os.path.join(output_dir, "augmented_model.onnx")
 
             # Perform the calibration step: computes the activations quantization ranges
             quant_ranges = quantizer.fit(
@@ -277,21 +275,12 @@ def quantize_as_onnx(
             )
 
             quant_preprocessor = optimum.onnxruntime.preprocessors.QuantizationPreprocessor()
-            quant_preprocessor.register_pass(
-                optimum.onnxruntime.preprocessors.passes.ExcludeLayerNormNodes()
-            )
-            quant_preprocessor.register_pass(
-                optimum.onnxruntime.preprocessors.passes.ExcludeGeLUNodes()
-            )
-            quant_preprocessor.register_pass(
-                optimum.onnxruntime.preprocessors.passes.ExcludeNodeAfter("Add", "Add")
-            )
-            quant_preprocessor.register_pass(
-                optimum.onnxruntime.preprocessors.passes.ExcludeNodeAfter("Gather", "Add")
-            )
-            quant_preprocessor.register_pass(
-                optimum.onnxruntime.preprocessors.passes.ExcludeNodeFollowedBy("Add", "Softmax")
-            )
+            oopp = optimum.onnxruntime.preprocessors.passes
+            quant_preprocessor.register_pass(oopp.ExcludeLayerNormNodes())
+            quant_preprocessor.register_pass(oopp.ExcludeGeLUNodes())
+            quant_preprocessor.register_pass(oopp.ExcludeNodeAfter("Add", "Add"))
+            quant_preprocessor.register_pass(oopp.ExcludeNodeAfter("Gather", "Add"))
+            quant_preprocessor.register_pass(oopp.ExcludeNodeFollowedBy("Add", "Softmax"))
 
         quantizer.quantize(
             save_dir=paths.onnx_quantized_uri,
