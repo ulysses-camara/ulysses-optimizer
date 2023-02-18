@@ -17,22 +17,22 @@ def test_quantization_sbert_custom_name(
 ):
     model_uri = fixture_sbert_model.get_submodule("0.auto_model").name_or_path
 
-    paths_a = otimizador.sbert.quantize_as_onnx(
+    paths_a = otimizador.sbert.to_onnx(
         model_uri=model_uri,
-        quantized_model_dirpath=fixture_quantized_model_dir,
+        output_dir=fixture_quantized_model_dir,
         quantized_model_filename="custom_sbert_name",
         check_cached=False,
-        save_intermediary_onnx_model=False,
+        keep_onnx_model=False,
     )
 
     t_start = time.perf_counter()
 
-    paths_b = otimizador.sbert.quantize_as_onnx(
+    paths_b = otimizador.sbert.to_onnx(
         model_uri=model_uri,
-        quantized_model_dirpath=fixture_quantized_model_dir,
+        output_dir=fixture_quantized_model_dir,
         quantized_model_filename="custom_sbert_name",
         check_cached=True,
-        save_intermediary_onnx_model=False,
+        keep_onnx_model=False,
     )
 
     t_delta = time.perf_counter() - t_start
@@ -52,20 +52,20 @@ def test_quantization_sbert_default_name(
 ):
     model_uri = fixture_sbert_model.get_submodule("0.auto_model").name_or_path
 
-    paths_a = otimizador.sbert.quantize_as_onnx(
+    paths_a = otimizador.sbert.to_onnx(
         model_uri=model_uri,
-        quantized_model_dirpath=fixture_quantized_model_dir,
+        output_dir=fixture_quantized_model_dir,
         check_cached=False,
-        save_intermediary_onnx_model=False,
+        keep_onnx_model=False,
     )
 
     t_start = time.perf_counter()
 
-    paths_b = otimizador.sbert.quantize_as_onnx(
+    paths_b = otimizador.sbert.to_onnx(
         model_uri=model_uri,
-        quantized_model_dirpath=fixture_quantized_model_dir,
+        output_dir=fixture_quantized_model_dir,
         check_cached=True,
-        save_intermediary_onnx_model=False,
+        keep_onnx_model=False,
     )
 
     t_delta = time.perf_counter() - t_start
@@ -88,12 +88,12 @@ def test_quantization_sbert_inference(
 ):
     model_uri = fixture_sbert_model.get_submodule("0.auto_model").name_or_path
 
-    paths = otimizador.sbert.quantize_as_onnx(
+    paths = otimizador.sbert.to_onnx(
         model_uri=model_uri,
-        quantized_model_dirpath=fixture_quantized_model_dir,
+        output_dir=fixture_quantized_model_dir,
         check_cached=False,
-        save_intermediary_onnx_model=True,
-        apply_static_quantization=True,
+        keep_onnx_model=True,
+        static_quantization=True,
     )
 
     # Note: quantized distilLegBert performance will severily drop if 'operators_to_quantize'
@@ -129,13 +129,13 @@ def test_quantization_labse_inference(
 ):
     model_uri = fixture_labse_model.get_submodule("0.auto_model").name_or_path
 
-    paths = otimizador.sbert.quantize_as_onnx(
+    paths = otimizador.sbert.to_onnx(
         model_uri=model_uri,
-        quantized_model_dirpath=fixture_quantized_model_dir,
+        output_dir=fixture_quantized_model_dir,
         check_cached=False,
-        save_intermediary_onnx_model=True,
+        keep_onnx_model=True,
         optimize_before_quantization=False,
-        apply_static_quantization=False,
+        static_quantization=False,
     )
 
     onnx_sbert_base = otimizador.sbert.ONNXSBERT(paths.onnx_base_uri)

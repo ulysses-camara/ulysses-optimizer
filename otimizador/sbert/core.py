@@ -17,7 +17,7 @@ from .. import utils
 
 
 __all__ = [
-    "quantize_as_onnx",
+    "to_onnx",
     "read_additional_submodules",
 ]
 

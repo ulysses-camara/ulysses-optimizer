@@ -15,31 +15,31 @@ class QuantizationOutputONNX(t.NamedTuple):
 
 def build_onnx_default_uris(
     model_name: str,
-    quantized_model_dirpath: str,
+    output_dir: str,
     model_attributes: t.Optional[t.Dict[str, t.Any]] = None,
     quantized_model_filename: t.Optional[str] = None,
-    intermediary_onnx_model_name: t.Optional[str] = None,
+    onnx_model_filename: t.Optional[str] = None,
 ) -> QuantizationOutputONNX:
     """Build default URIs for quantized output in ONNX format."""
     model_attributes = model_attributes or {}
 
-    if not intermediary_onnx_model_name:
+    if not onnx_model_filename:
         attrs_to_name = "_".join("_".join(map(str, item)) for item in model_attributes.items())
-        intermediary_onnx_model_name = f"{model_name}_{attrs_to_name}_model"
+        onnx_model_filename = f"{model_name}_{attrs_to_name}_model"
 
     if not quantized_model_filename:
-        quantized_model_filename = f"q_{intermediary_onnx_model_name}"
+        quantized_model_filename = f"q_{onnx_model_filename}"
 
-    if not intermediary_onnx_model_name.endswith(".onnx"):
-        intermediary_onnx_model_name += ".onnx"
+    if not onnx_model_filename.endswith(".onnx"):
+        onnx_model_filename += ".onnx"
 
     if not quantized_model_filename.endswith(".onnx"):
         quantized_model_filename += ".onnx"
 
-    os.makedirs(quantized_model_dirpath, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
 
-    onnx_base_uri = os.path.join(quantized_model_dirpath, intermediary_onnx_model_name)
-    onnx_quantized_uri = os.path.join(quantized_model_dirpath, quantized_model_filename)
+    onnx_base_uri = os.path.join(output_dir, onnx_model_filename)
+    onnx_quantized_uri = os.path.join(output_dir, quantized_model_filename)
 
     paths_dict: t.Dict[str, str] = {
         "onnx_base_uri": onnx_base_uri,
