@@ -4,6 +4,7 @@ import shutil
 
 import pytest
 import sentence_transformers
+import datasets
 import buscador
 
 
@@ -17,8 +18,7 @@ def fn_fixture_quantized_model_dir():
         yield test_quantized_models_dir
 
     finally:
-        # shutil.rmtree(test_quantized_models_dir)
-        pass
+        shutil.rmtree(test_quantized_models_dir)
 
 
 @pytest.fixture(name="fixture_pretrained_model_dir", scope="session")
@@ -73,3 +73,18 @@ def fn_fixture_labse_model(fixture_pretrained_model_dir: str):
     )
 
     yield sbert
+
+
+@pytest.fixture(name="fixture_static_quantization_dataset_uri", scope="session")
+def fn_fixture_static_quantization_dataset_uri(fixture_pretrained_model_dir: str) -> str:
+    dataset_name = "ulysses_tesemo_v2_subset_static_quantization"
+
+    buscador.download_resource(
+        task_name="quantization",
+        resource_name=dataset_name,
+        output_dir=fixture_pretrained_model_dir,
+        check_cached=True,
+        check_resource_hash=True,
+    )
+
+    yield os.path.join(fixture_pretrained_model_dir, dataset_name)

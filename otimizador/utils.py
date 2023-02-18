@@ -1,6 +1,8 @@
 """General purpose, algorithm-agnostic utility functions."""
 import typing as t
 import os
+import datetime
+import random
 
 import torch
 
@@ -11,6 +13,18 @@ class QuantizationOutputONNX(t.NamedTuple):
     onnx_base_uri: str
     onnx_quantized_uri: str
     output_uri: str
+
+
+def build_random_model_name(base_name: str) -> str:
+    """TODO"""
+    random_name = "_".join(
+        [
+            base_name,
+            datetime.datetime.utcnow().strftime("%Y_%m_%d__%H_%M_%S"),
+            hex(random.getrandbits(128))[2:],
+        ]
+    )
+    return random_name
 
 
 def build_onnx_default_uris(

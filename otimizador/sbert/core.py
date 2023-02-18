@@ -1,15 +1,13 @@
 """Resources to quantize SBERT models."""
 import typing as t
 import os
-import datetime
-import random
 import shutil
 import glob
 import re
 import functools
 
 import optimum.onnxruntime
-import optimum.onnxruntime.preprocessors.passes
+import optimum.onnxruntime.preprocessors.passes as oopp
 import datasets
 import transformers
 
@@ -53,8 +51,10 @@ def copy_aditional_submodules(
         )
 
 
-def preprocess_function(examples, tokenizer, data_key: str = "text"):
-    return tokenizer(examples[data_key], padding="max_length", max_length=128, truncation=True)
+def preprocess_function(examples, tokenizer, content_column: str = "text"):
+    return tokenizer(
+        examples[content_column], padding="max_length", max_length=128, truncation=True
+    )
 
 
 def to_onnx(
@@ -75,8 +75,10 @@ def to_onnx(
         "Gather",
     ),
     check_cached: bool = True,
-    static_quantization: bool = False,
+    static_quantization_dataset_uri: t.Optional[str] = None,
+    content_column: str = "text",
     optimize_before_quantization: bool = True,
+    optimization_level: int = 99,
     keep_onnx_model: bool = False,
     verbose: bool = False,
 ) -> utils.QuantizationOutputONNX:
@@ -109,10 +111,16 @@ def to_onnx(
         If True, check whether a model with the same model exists before quantization.
         If this happens to be the case, this function will not produce any new models.
 
-    static_quantization : bool, default=False
+    static_quantization_dataset_uri : str or None, default=None
+        TODO
+
+    content_column : str, default='text'
         TODO
 
     optimize_before_quantization : bool, default=True
+        TODO
+
+    optimization_level : int, default=99
         TODO
 
     keep_onnx_model : bool, default=False
@@ -135,6 +143,12 @@ def to_onnx(
     model_name = os.path.basename(model_uri)
     if not model_name:
         model_name = os.path.basename(os.path.dirname(model_uri))
+
+    is_static_quant = False
+
+    if static_quantization_dataset_uri:
+        static_quantization_dataset_uri = utils.expand_path(static_quantization_dataset_uri)
+        is_static_quant = True
 
     paths = utils.build_onnx_default_uris(
         model_name="sbert",
@@ -163,7 +177,7 @@ def to_onnx(
         return paths
 
     optimization_config = optimum.onnxruntime.OptimizationConfig(
-        optimization_level=99,
+        optimization_level=optimization_level,
         enable_transformers_specific_optimizations=True,
         disable_gelu_fusion=False,
         disable_embed_layer_norm_fusion=False,
@@ -178,19 +192,19 @@ def to_onnx(
     ooq = optimum.onnxruntime.quantization
 
     quantization_config = optimum.onnxruntime.configuration.QuantizationConfig(
-        is_static=static_quantization,
-        format=ooq.QuantFormat.QDQ if static_quantization else ooq.QuantFormat.QOperator,
-        mode=ooq.QuantizationMode.QLinearOps
-        if static_quantization
-        else ooq.QuantizationMode.IntegerOps,
-        activations_dtype=ooq.QuantType.QInt8 if static_quantization else ooq.QuantType.QUInt8,
+        is_static=is_static_quant,
+        format=ooq.QuantFormat.QDQ if is_static_quant else ooq.QuantFormat.QOperator,
+        mode=(
+            ooq.QuantizationMode.QLinearOps if is_static_quant else ooq.QuantizationMode.IntegerOps
+        ),
+        activations_dtype=ooq.QuantType.QInt8 if is_static_quant else ooq.QuantType.QUInt8,
         weights_dtype=ooq.QuantType.QInt8,
-        per_channel=not static_quantization,
+        per_channel=not is_static_quant,
         operators_to_quantize=list(operators_to_quantize),
     )
     quant_ranges = None
     quant_preprocessor = None
-    onnx_augmented_model_name = None
+    onnx_augmented_model_name: t.Optional[str] = None
 
     ort_model = optimum.onnxruntime.ORTModelForFeatureExtraction.from_pretrained(
         model_uri,
@@ -205,13 +219,7 @@ def to_onnx(
     if optimize_before_quantization:
         optimizer = optimum.onnxruntime.ORTOptimizer.from_pretrained(ort_model)
 
-        temp_optimized_model_uri = "_".join(
-            [
-                "temp_optimized_sbert",
-                datetime.datetime.utcnow().strftime("%Y_%m_%d__%H_%M_%S"),
-                hex(random.getrandbits(128))[2:],
-            ]
-        )
+        temp_optimized_model_uri = utils.build_random_model_name(base_name="temp_optimized_sbert")
 
         if optimized_model_filename:
             optimized_model_filename = os.path.join(output_dir, optimized_model_filename)
@@ -239,33 +247,29 @@ def to_onnx(
 
         quantizer = optimum.onnxruntime.ORTQuantizer.from_pretrained(ort_model)
 
-        if static_quantization:
-            # Create the calibration dataset used for the calibration step
+        if is_static_quant:
             tokenizer = transformers.AutoTokenizer.from_pretrained(
                 model_uri,
                 local_files_only=True,
             )
 
-            # TODO: remove dataset load from here.
-            calibration_dataset_uri = (
-                "/media/nvme/sentence-model/ulysses_tesemo_v2_subset_static_quantization"
-            )
-            calibration_dataset_uri = os.path.abspath(calibration_dataset_uri)
-
-            calibration_dataset = datasets.load_from_disk(calibration_dataset_uri)
+            calibration_dataset = datasets.load_from_disk(static_quantization_dataset_uri)
             calibration_dataset = calibration_dataset.map(
-                functools.partial(preprocess_function, tokenizer=tokenizer),
-                remove_columns="text",
+                functools.partial(
+                    preprocess_function, tokenizer=tokenizer, content_column=content_column
+                ),
+                remove_columns=content_column,
             )
 
             calibration_config = (
                 optimum.onnxruntime.configuration.AutoCalibrationConfig.percentiles(
-                    calibration_dataset, percentile=99.999
+                    calibration_dataset, percentile=99.995
                 )
             )
-            onnx_augmented_model_name = os.path.join(output_dir, "augmented_model.onnx")
 
-            # Perform the calibration step: computes the activations quantization ranges
+            onnx_augmented_model_name = utils.build_random_model_name("augmented_model.onnx")
+            onnx_augmented_model_name = os.path.join(output_dir, onnx_augmented_model_name)
+
             quant_ranges = quantizer.fit(
                 dataset=calibration_dataset,
                 calibration_config=calibration_config,
@@ -275,7 +279,6 @@ def to_onnx(
             )
 
             quant_preprocessor = optimum.onnxruntime.preprocessors.QuantizationPreprocessor()
-            oopp = optimum.onnxruntime.preprocessors.passes
             quant_preprocessor.register_pass(oopp.ExcludeLayerNormNodes())
             quant_preprocessor.register_pass(oopp.ExcludeGeLUNodes())
             quant_preprocessor.register_pass(oopp.ExcludeNodeAfter("Add", "Add"))
