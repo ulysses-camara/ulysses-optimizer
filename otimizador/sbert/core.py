@@ -1,191 +1,333 @@
 """Resources to quantize SBERT models."""
 import typing as t
 import os
-import warnings
-import collections
+import shutil
+import glob
+import re
+import functools
 
-import sentence_transformers
-import torch
+import optimum.onnxruntime
+import optimum.onnxruntime.preprocessors.passes as oopp
+import datasets
+import transformers
 
-from . import models
 from .. import utils
-from .. import optional_import_utils
 
 
 __all__ = [
-    "quantize_as_onnx",
+    "to_onnx",
+    "read_additional_submodules",
 ]
 
 
-def quantize_as_onnx(
-    model: sentence_transformers.SentenceTransformer,
+def read_additional_submodules(
+    source_dir: str, submodule_pattern: str = r"[0-9]+_[A-Z][a-z]*"
+) -> t.List[str]:
+    """Read SentenceTransformer additional submodules from disk.
+
+    SentenceTransformer submodules are stored as subdirectories named in the format
+    `ID_SubmoduleType`, with a config.json file within.
+
+    The argument `submodule_pattern` is a regular expression that matches the pattern
+    described above.
+    """
+    source_dir = utils.expand_path(source_dir)
+    submodules = glob.glob(os.path.join(source_dir, "*"))
+    submodules = [
+        submodule
+        for submodule in submodules
+        if re.match(submodule_pattern, os.path.basename(submodule))
+    ]
+    submodules = sorted(
+        submodules, key=lambda submodule: int(os.path.basename(submodule).split("_")[0])
+    )
+    return submodules
+
+
+def copy_aditional_submodules(
+    source_dir: str, target_dir: str, submodule_pattern: str = r"[0-9]+_[A-Z][a-z]*"
+) -> None:
+    """Copy SentenceTransformer submodules from `source_dir` to `target_dir`.
+
+    SentenceTransformer submodules are stored as subdirectories named in the format
+    `ID_SubmoduleType`, with a config.json file within.
+
+    The argument `submodule_pattern` is a regular expression that matches the pattern
+    described above.
+    """
+    submodules = read_additional_submodules(
+        source_dir=source_dir, submodule_pattern=submodule_pattern
+    )
+    for submodule in submodules:
+        submodule_name = os.path.basename(submodule)
+        shutil.copytree(
+            src=submodule, dst=os.path.join(target_dir, submodule_name), dirs_exist_ok=True
+        )
+
+
+def preprocess_function(
+    examples: t.Dict[str, t.List[str]],
+    tokenizer: transformers.AutoTokenizer,
+    content_column: str = "text",
+) -> t.Dict[str, t.List[t.Any]]:
+    """Preprocess calibration dataset for static quantization."""
+    return tokenizer(  # type: ignore
+        examples[content_column], padding="max_length", max_length=128, truncation=True
+    )
+
+
+def to_onnx(
+    model_uri: str,
+    output_dir: str = "./quantized_models",
+    onnx_model_filename: t.Optional[str] = None,
+    optimized_model_filename: t.Optional[str] = None,
     quantized_model_filename: t.Optional[str] = None,
-    intermediary_onnx_model_name: t.Optional[str] = None,
-    intermediary_onnx_optimized_model_name: t.Optional[str] = None,
-    quantized_model_dirpath: str = "./quantized_models",
-    task_name: str = "unknown_task",
-    optimization_level: int = 99,
-    onnx_opset_version: int = 15,
+    device: str = "cpu",
+    operators_to_quantize: t.Tuple[str, ...] = (
+        "MatMul",
+        "Attention",
+        "LayerNormalization",
+        "SkipLayerNormalization",
+        "Mul",
+        "Div",
+        "Add",
+        "Gather",
+    ),
     check_cached: bool = True,
-    clean_intermediary_files: bool = True,
+    static_quantization_dataset_uri: t.Optional[str] = None,
+    content_column: str = "text",
+    optimize_before_quantization: bool = True,
+    optimization_level: int = 99,
+    keep_onnx_model: bool = False,
+    verbose: bool = False,
 ) -> utils.QuantizationOutputONNX:
     """Quantize SBERT as ONNX format.
 
     Parameters
     ----------
-    model : sentence_transformers.SentenceTransformer
-        Sentence Transformer Model to be quantized.
+    model_uri : str
+        Sentence Transformer URI to be quantized.
 
-    quantized_model_filename : str or None, default=None
-        Output filename. If None, a long and descriptive name will be derived from model's
-        parameters.
-
-    quantized_model_dirpath : str, default='./quantized_models'
+    output_dir : str, default='./quantized_models'
         Path to output file directory, which the resulting quantized model will be stored,
         alongside any possible coproducts also generated during the quantization procedure.
 
-    task_name : str, default='unknown_task'
-        Model task name. Used to build quantized model filename, if not provided.
+    onnx_model_filename : str or None, default=None
+        Filename of base model in ONNX format. This preprocessing is necessary for optimization and
+        quantization.
 
-    intermediary_onnx_model_name : str or None, default=None
-        Name to save intermediary model in ONNX format in `quantized_model_dirpath`. This
-        transformation is necessary to perform all necessary optimization and quantization.
-        If None, a name will be derived from `quantized_model_filename`.
+    optimized_model_filename : str or None, deault=None
+        Optimized model filename. If None, a random temporary name will be created, and the
+        optimized model is removed after the creation of the quantized model.
 
-    intermediary_onnx_optimized_model_name : str or None, default=None
-        Name to save intermediary optimized model in ONNX format in `quantized_model_dirpath`.
-        This transformation is necessary to perform quantization. If None, a name will be
-        derived from `quantized_model_filename`.
+    quantized_model_filename : str or None, default=None
+        Quantized model filename.
 
-    optimization_level : {0, 1, 2, 99}, default=99
-        Optimization level for ONNX models. From the ONNX Runtime specification:
-        - 0: disable all optimizations;
-        - 1: enable only basic optimizations;
-        - 2: enable basic and extended optimizations; or
-        - 99: enable all optimizations (incluing layer and hardware-specific optimizations).
-        See [1]_ for more information.
-
-    onnx_opset_version: int, default=15
-        ONNX operator set version. Used only if `model_output_format='onnx'`. Check [2]_ for
-        more information.
+    device : {'cpu', 'cuda'}, default='cpu'
+        Device for which the model is to be optimized.
 
     check_cached : bool, default=True
         If True, check whether a model with the same model exists before quantization.
         If this happens to be the case, this function will not produce any new models.
 
-    clean_intermediary_files : bool, default=False
-        If True, remove ONNX optimized and base models after building quantized model.
+    static_quantization_dataset_uri : str or None, default=None
+        Path to dataset for quantized parameter range calibration.
+        If provided, will perform static quantization.
+        If None, will perform dynamic quantization.
+
+    content_column : str, default='text'
+        Column name from `static_quantization_dataset_uri` where sentence textual contents are
+        kept.
+
+    optimize_before_quantization : bool, default=True
+        If True, optimize model before quantization.
+
+    optimization_level : int, default=99
+        Optimization level to use when `optimize_before_quantization=True`. Check `optimum`
+        documentation for more information.
+
+    keep_onnx_model : bool, default=False
+        If True, keep ONNX base model (saved as `onnx_model_filename`).
+        If False, remove this model after quantization.
+
+    verbose : bool, default=False
+        If True, enable print messages.
 
     Returns
     -------
     paths : t.Tuple[str, ...]
-        File URIs related from generated files during the quantization procedure. The
-        final model URI can be accessed from the `output_uri` attribute.
-
-    References
-    ----------
-    .. [1] Graph Optimizations in ONNX Runtime. Available at:
-       https://onnxruntime.ai/docs/performance/graph-optimizations.html
-
-    .. [2] ONNX Operator Schemas. Available at:
-       https://github.com/onnx/onnx/blob/main/docs/Operators.md
+        File URIs related from generated files during the quantization procedure. The final model
+        URI can be accessed from the `output_uri` attribute.
     """
-    optional_import_utils.load_required_module("onnxruntime")
+    output_dir = utils.expand_path(output_dir)
 
-    import onnxruntime.quantization
+    if not optimize_before_quantization:
+        optimized_model_filename = None
 
-    quantized_model_dirpath = utils.expand_path(quantized_model_dirpath)
-    model_config = model.get_submodule("0.auto_model").config  # type: ignore
+    model_name = os.path.basename(model_uri)
+    if not model_name:
+        model_name = os.path.basename(os.path.dirname(model_uri))
 
-    model_attributes: t.Dict[str, t.Any] = collections.OrderedDict(
-        (
-            ("num_layers", model_config.num_hidden_layers),
-            ("vocab_size", model.tokenizer.vocab_size),
-        )
-    )
+    is_static_quant = False
+
+    if static_quantization_dataset_uri:
+        static_quantization_dataset_uri = utils.expand_path(static_quantization_dataset_uri)
+        is_static_quant = True
 
     paths = utils.build_onnx_default_uris(
-        task_name=task_name,
         model_name="sbert",
-        model_attributes=model_attributes,
-        quantized_model_dirpath=quantized_model_dirpath,
+        model_attributes={"name": model_name},
+        output_dir=output_dir,
         quantized_model_filename=quantized_model_filename,
-        intermediary_onnx_model_name=intermediary_onnx_model_name,
-        intermediary_onnx_optimized_model_name=intermediary_onnx_optimized_model_name,
-        optimization_level=optimization_level,
-        include_config_uri=False,
+        onnx_model_filename=onnx_model_filename,
     )
 
-    if check_cached and os.path.isfile(paths.onnx_quantized_uri):
+    onnx_base_uri = paths.onnx_base_uri.replace(".onnx", "_onnx")
+    quantized_model_uri = paths.output_uri.replace(".onnx", "_onnx")
+
+    paths = utils.QuantizationOutputONNX(
+        onnx_base_uri=(onnx_base_uri if keep_onnx_model else quantized_model_uri),
+        onnx_quantized_uri=quantized_model_uri,
+        output_uri=quantized_model_uri,
+    )
+
+    if check_cached and os.path.exists(paths.onnx_quantized_uri):
+        if verbose:  # pragma: no cover
+            print(
+                f"Found cached model in '{paths.onnx_quantized_uri}'.",
+                "Skipping model quantization.",
+            )
+
         return paths
 
-    pytorch_module = models.ONNXSBERTSurrogate(config=model_config)
-    pytorch_module.load_state_dict(model.get_submodule("0.auto_model").state_dict())  # type: ignore
-    pytorch_module.eval()  # type: ignore
-
-    if not check_cached or not os.path.isfile(paths.onnx_base_uri):
-        torch_sample_input: t.Tuple[torch.Tensor, ...] = utils.gen_dummy_inputs_for_tracing(
-            batch_size=1,
-            vocab_size=model_config.vocab_size,
-            seq_length=256,
-        )
-        torch_sample_input = tuple(item.to(model.device) for item in torch_sample_input)
-
-        torch.onnx.export(
-            model=pytorch_module,
-            args=torch_sample_input,
-            f=paths.onnx_base_uri,
-            input_names=["input_ids", "attention_mask", "token_type_ids"],
-            output_names=["sentence_embedding"],
-            opset_version=onnx_opset_version,
-            export_params=True,
-            do_constant_folding=True,
-            dynamic_axes=dict(
-                input_ids={0: "batch_axis", 1: "sentence_length"},
-                attention_mask={0: "batch_axis", 1: "sentence_length"},
-                token_type_ids={0: "batch_axis", 1: "sentence_length"},
-                sentence_embedding={0: "batch_axis"},
-            ),
-        )
-
-    onnxruntime.quantization.quantize_dynamic(
-        model_input=paths.onnx_base_uri,
-        model_output=paths.onnx_quantized_uri,
-        weight_type=onnxruntime.quantization.QuantType.QUInt8,
-        optimize_model=True,
-        per_channel=False,
-        extra_options=dict(
-            EnableSubgraph=True,
-            MatMulConstBOnly=False,
-            ForceQuantizeNoInputCheck=True,
-        ),
+    optimization_config = optimum.onnxruntime.OptimizationConfig(
+        optimization_level=optimization_level,
+        enable_transformers_specific_optimizations=True,
+        disable_gelu_fusion=False,
+        disable_embed_layer_norm_fusion=False,
+        disable_attention_fusion=False,
+        disable_skip_layer_norm_fusion=False,
+        disable_bias_skip_layer_norm_fusion=False,
+        disable_bias_gelu_fusion=False,
+        enable_gelu_approximation=True,
+        optimize_for_gpu=device.strip().lower() == "cuda",
     )
 
-    os.rename(paths.onnx_base_uri.replace(".onnx", "-opt.onnx"), paths.onnx_optimized_uri)
+    ooq = optimum.onnxruntime.quantization
 
-    if clean_intermediary_files:
-        try:
-            os.remove(paths.onnx_base_uri)
+    quantization_config = optimum.onnxruntime.configuration.QuantizationConfig(
+        is_static=is_static_quant,
+        format=ooq.QuantFormat.QDQ if is_static_quant else ooq.QuantFormat.QOperator,
+        mode=(
+            ooq.QuantizationMode.QLinearOps if is_static_quant else ooq.QuantizationMode.IntegerOps
+        ),
+        activations_dtype=ooq.QuantType.QInt8 if is_static_quant else ooq.QuantType.QUInt8,
+        weights_dtype=ooq.QuantType.QInt8,
+        per_channel=not is_static_quant,
+        operators_to_quantize=list(operators_to_quantize),
+    )
+    quant_ranges = None
+    quant_preprocessor = None
+    onnx_augmented_model_name: t.Optional[str] = None
 
-        except (FileNotFoundError, OSError):
-            warnings.warn(
-                message=(
-                    "Could not delete base ONNX model. There will be a residual file in "
-                    f"'{quantized_model_dirpath}' directory."
-                ),
-                category=RuntimeWarning,
+    ort_model = optimum.onnxruntime.ORTModelForFeatureExtraction.from_pretrained(
+        model_uri,
+        from_transformers=True,
+        local_files_only=True,
+    )
+
+    if keep_onnx_model:
+        ort_model.save_pretrained(paths.onnx_base_uri)
+        copy_aditional_submodules(source_dir=model_uri, target_dir=paths.onnx_base_uri)
+
+    if optimize_before_quantization:
+        optimizer = optimum.onnxruntime.ORTOptimizer.from_pretrained(ort_model)
+
+        temp_optimized_model_uri = utils.build_random_model_name(base_name="temp_optimized_sbert")
+
+        if optimized_model_filename:
+            optimized_model_filename = os.path.join(output_dir, optimized_model_filename)
+
+        temp_optimized_model_uri = os.path.join(output_dir, temp_optimized_model_uri)
+
+        optimizer.optimize(
+            save_dir=optimized_model_filename or temp_optimized_model_uri,
+            file_suffix="",
+            optimization_config=optimization_config,
+        )
+
+        if optimized_model_filename:
+            copy_aditional_submodules(source_dir=model_uri, target_dir=optimized_model_filename)
+
+    else:
+        temp_optimized_model_uri = model_uri
+
+    try:
+        ort_model = optimum.onnxruntime.ORTModelForFeatureExtraction.from_pretrained(
+            optimized_model_filename or temp_optimized_model_uri,
+            from_transformers=not optimize_before_quantization,
+            local_files_only=True,
+        )
+
+        quantizer = optimum.onnxruntime.ORTQuantizer.from_pretrained(ort_model)
+
+        if is_static_quant and static_quantization_dataset_uri:
+            tokenizer = transformers.AutoTokenizer.from_pretrained(
+                model_uri,
+                local_files_only=True,
             )
 
-        try:
-            os.remove(paths.onnx_optimized_uri)
-
-        except (FileNotFoundError, OSError):
-            warnings.warn(
-                message=(
-                    "Could not delete intermediary optimized ONNX model. There will be a residual "
-                    f"file in '{quantized_model_dirpath}' directory."
+            calibration_dataset = datasets.load_from_disk(static_quantization_dataset_uri)
+            calibration_dataset = calibration_dataset.map(
+                functools.partial(
+                    preprocess_function, tokenizer=tokenizer, content_column=content_column
                 ),
-                category=RuntimeWarning,
+                remove_columns=content_column,
             )
+
+            calibration_config = (
+                optimum.onnxruntime.configuration.AutoCalibrationConfig.percentiles(
+                    calibration_dataset, percentile=99.995
+                )
+            )
+
+            onnx_augmented_model_name = utils.build_random_model_name("augmented_model.onnx")
+            onnx_augmented_model_name = os.path.join(output_dir, onnx_augmented_model_name)
+
+            quant_ranges = quantizer.fit(
+                dataset=calibration_dataset,
+                calibration_config=calibration_config,
+                operators_to_quantize=quantization_config.operators_to_quantize,
+                batch_size=8,
+                onnx_augmented_model_name=onnx_augmented_model_name,
+            )
+
+            quant_preprocessor = optimum.onnxruntime.preprocessors.QuantizationPreprocessor()
+            quant_preprocessor.register_pass(oopp.ExcludeLayerNormNodes())
+            quant_preprocessor.register_pass(oopp.ExcludeGeLUNodes())
+            quant_preprocessor.register_pass(oopp.ExcludeNodeAfter("Add", "Add"))
+            quant_preprocessor.register_pass(oopp.ExcludeNodeAfter("Gather", "Add"))
+            quant_preprocessor.register_pass(oopp.ExcludeNodeFollowedBy("Add", "Softmax"))
+
+        quantizer.quantize(
+            save_dir=paths.onnx_quantized_uri,
+            file_suffix="quantized",
+            quantization_config=quantization_config,
+            calibration_tensors_range=quant_ranges,
+            preprocessor=quant_preprocessor,
+        )
+
+        copy_aditional_submodules(source_dir=model_uri, target_dir=paths.onnx_quantized_uri)
+
+    finally:
+        if (
+            optimize_before_quantization
+            and temp_optimized_model_uri != model_uri
+            and os.path.exists(temp_optimized_model_uri)
+        ):
+            shutil.rmtree(temp_optimized_model_uri)
+
+        if onnx_augmented_model_name is not None:
+            os.remove(onnx_augmented_model_name)
 
     return paths

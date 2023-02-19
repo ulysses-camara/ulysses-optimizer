@@ -13,7 +13,7 @@ def fn_fixture_quantized_model_dir():
         test_quantized_models_dir = os.path.join(
             os.path.dirname(__file__), "./test_quantized_models"
         )
-        os.makedirs(test_quantized_models_dir, exist_ok=False)
+        os.makedirs(test_quantized_models_dir, exist_ok=True)
         yield test_quantized_models_dir
 
     finally:
@@ -30,19 +30,20 @@ def fn_fixture_pretrained_model_dir():
         yield test_pretrained_models_dir
 
     finally:
-        shutil.rmtree(test_pretrained_models_dir)
+        # shutil.rmtree(test_pretrained_models_dir)
+        pass
 
 
 @pytest.fixture(name="fixture_sbert_model", scope="session")
 def fn_fixture_sbert_model(fixture_pretrained_model_dir: str):
     model_name = "distil_sbert_br_ctimproved_12_epochs_v1"
 
-    buscador.download_model(
+    buscador.download_resource(
         task_name="sentence_similarity",
-        model_name=model_name,
+        resource_name=model_name,
         output_dir=fixture_pretrained_model_dir,
         check_cached=True,
-        check_model_hash=True,
+        check_resource_hash=True,
     )
 
     sbert = sentence_transformers.SentenceTransformer(
@@ -51,3 +52,38 @@ def fn_fixture_sbert_model(fixture_pretrained_model_dir: str):
     )
 
     yield sbert
+
+
+@pytest.fixture(name="fixture_labse_model", scope="session")
+def fn_fixture_labse_model(fixture_pretrained_model_dir: str):
+    model_name = "ulysses_LaBSE_30000"
+
+    buscador.download_resource(
+        task_name="sentence_similarity",
+        resource_name=model_name,
+        output_dir=fixture_pretrained_model_dir,
+        check_cached=True,
+        check_resource_hash=True,
+    )
+
+    sbert = sentence_transformers.SentenceTransformer(
+        os.path.join(fixture_pretrained_model_dir, model_name),
+        device="cpu",
+    )
+
+    yield sbert
+
+
+@pytest.fixture(name="fixture_static_quantization_dataset_uri", scope="session")
+def fn_fixture_static_quantization_dataset_uri(fixture_pretrained_model_dir: str) -> str:
+    dataset_name = "ulysses_tesemo_v2_subset_static_quantization"
+
+    buscador.download_resource(
+        task_name="quantization",
+        resource_name=dataset_name,
+        output_dir=fixture_pretrained_model_dir,
+        check_cached=True,
+        check_resource_hash=True,
+    )
+
+    yield os.path.join(fixture_pretrained_model_dir, dataset_name)

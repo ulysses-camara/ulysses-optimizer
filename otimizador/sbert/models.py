@@ -2,19 +2,70 @@
 from __future__ import annotations
 
 import typing as t
+import os
 
 import numpy as np
 import numpy.typing as npt
 import torch
+import torch.nn.functional
 import transformers
+import sentence_transformers
+import optimum.onnxruntime
 import tqdm.auto
 
-from .. import optional_import_utils
+from . import core
 
 
 __all__ = [
     "ONNXSBERT",
 ]
+
+
+class _SentenceEmbeddingPipeline(transformers.Pipeline):
+    # pylint: disable='unused-argument'
+    def __init__(
+        self, *args: t.Any, postprocessing_modules: t.List[torch.nn.Module], **kwargs: t.Any
+    ):
+        super().__init__(*args, **kwargs)
+        self.postprocessing_modules = postprocessing_modules
+
+    def __len__(self) -> int:
+        return 1 + len(self.postprocessing_modules)
+
+    def _sanitize_parameters(self, **kwargs: t.Any) -> t.Tuple[t.Dict[str, t.Any], ...]:
+        preprocess_kwargs = {
+            "max_length": int(kwargs.get("max_length", 512)),
+        }
+        postprocess_kwargs = {
+            "output_value": kwargs.get("output_value", "sentence_embedding"),
+        }
+        return preprocess_kwargs, {}, postprocess_kwargs
+
+    def preprocess(
+        self, input_: t.List[str], max_length: int = 512, **kwargs: t.Any
+    ) -> t.Dict[str, torch.Tensor]:
+        return self.tokenizer(  # type: ignore
+            input_, padding="longest", truncation=True, return_tensors="pt", max_length=max_length
+        )
+
+    def _forward(
+        self, input_tensors: t.Dict[str, torch.Tensor], **kwargs: t.Any
+    ) -> t.Dict[str, torch.Tensor]:
+        outputs = self.model(**input_tensors)
+        return {"token_embeddings": outputs[0], "attention_mask": input_tensors["attention_mask"]}
+
+    def postprocess(
+        self,
+        model_outputs: t.Dict[str, torch.Tensor],
+        output_value: str = "sentence_embedding",
+        **kwargs: t.Any,
+    ) -> torch.Tensor:
+        out = model_outputs
+
+        for layer in self.postprocessing_modules:
+            out = layer(out)
+
+        return out[output_value]
 
 
 class ONNXSBERT:
@@ -43,30 +94,59 @@ class ONNXSBERT:
     def __init__(
         self,
         uri_model: str,
-        uri_tokenizer: str,
+        uri_tokenizer: t.Optional[str] = None,
         local_files_only: bool = True,
         cache_dir_tokenizer: str = "./cache/tokenizers",
     ):
         self.tokenizer = transformers.BertTokenizer.from_pretrained(
-            uri_tokenizer,
+            uri_tokenizer or uri_model,
             local_files_only=local_files_only,
             cache_dir=cache_dir_tokenizer,
             use_fast=True,
         )
 
-        optional_import_utils.load_required_module("onnxruntime")
-
-        import onnxruntime  # pylint: disable='import-error'
-
-        sess_options = onnxruntime.SessionOptions()
-        sess_options.graph_optimization_level = (
-            onnxruntime.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+        self._model = optimum.onnxruntime.ORTModelForFeatureExtraction.from_pretrained(
+            uri_model,
+            from_transformers=False,
+            local_files_only=True,
         )
 
-        self._model: onnxruntime.InferenceSession = onnxruntime.InferenceSession(
-            path_or_bytes=uri_model,
-            sess_options=sess_options,
+        self._emb_dim = 768
+
+        if hasattr(self._model.config, "pooler_fc_size"):
+            self._emb_dim = int(self._model.config.pooler_fc_size)
+
+        elif hasattr(self._model.config, "hidden_size"):
+            self._emb_dim = int(self._model.config.hidden_size)
+
+        self._pipeline = _SentenceEmbeddingPipeline(
+            model=self.model,
+            tokenizer=self.tokenizer,
+            postprocessing_modules=self._read_postprocessing_modules(uri_model),
         )
+
+    def __len__(self) -> int:
+        return len(self._pipeline)
+
+    def __str__(self) -> str:
+        parts: t.List[str] = [f"{self.__class__.__name__}("]
+        parts.append(f"  (0): {str(self._model)}")
+        for i, layer in enumerate(self._pipeline.postprocessing_modules, 1):
+            parts.append(f"  ({i}): {layer}")
+        parts.append(")")
+        return "\n".join(parts)
+
+    @staticmethod
+    def _read_postprocessing_modules(base_dir: str) -> t.List[torch.nn.Module]:
+        submodules = core.read_additional_submodules(source_dir=base_dir)
+        postprocessing_modules: t.List[torch.nn.Module] = []
+
+        for submodule in submodules:
+            submodule_type = os.path.basename(submodule).split("_")[-1]
+            new_submodule = getattr(sentence_transformers.models, submodule_type).load(submodule)
+            postprocessing_modules.append(new_submodule)
+
+        return postprocessing_modules
 
     @property
     def model(self) -> onnxruntime.InferenceSession:  # type: ignore
@@ -84,81 +164,54 @@ class ONNXSBERT:
 
     def encode(
         self,
-        sequences: t.List[str],
-        batch_size: int = 32,
+        sentences: t.Union[str, t.Sequence[str]],
+        batch_size: int = 8,
         show_progress_bar: bool = True,
+        output_value: str = "sentence_embedding",
+        convert_to_numpy: bool = True,
+        normalize_embeddings: bool = False,
         **kwargs: t.Any,
-    ) -> npt.NDArray[np.float64]:
+    ) -> t.Union[torch.Tensor, npt.NDArray[np.float64]]:
         """Predict a tokenized minibatch."""
-        # pylint: disable='unused-argument'
-        model_out_list: t.List[npt.NDArray[np.float64]] = []
+        # pylint: disable='unused-argument,invalid-name'
+        input_is_single_string = False
 
-        for i_start in tqdm.auto.tqdm(
-            range(0, len(sequences), batch_size), disable=not show_progress_bar
-        ):
-            i_end = i_start + batch_size
+        if isinstance(sentences, str):
+            sentences = [sentences]
+            input_is_single_string = True
 
-            minibatch = self.tokenizer(
-                sequences[i_start:i_end],
-                return_tensors="np",
-                truncation=True,
-                padding="longest",
-                max_length=512,
-            )
+        if not isinstance(sentences, list):
+            sentences = list(sentences)
 
-            minibatch = {key: np.atleast_2d(val) for key, val in minibatch.items()}
-
-            model_out: t.List[npt.NDArray[np.float64]] = self._model.run(
-                output_names=["sentence_embedding"],
-                input_feed=minibatch,
-                run_options=None,
-            )
-
-            model_out_list.extend(model_out)
-
-        logits = np.vstack(model_out_list)
-
-        if logits.ndim >= 3:
-            logits = logits.squeeze(0)
-
-        return logits
-
-    def __call__(self, *args: t.Any, **kwargs: t.Any) -> npt.NDArray[np.float64]:
-        return self.encode(*args, **kwargs)
-
-
-class ONNXSBERTSurrogate(transformers.BertModel):
-    """Create a temporary container class for SBERT + Average Pooler.
-
-    This container is used only during the creation and quantization of ONNX files.
-    This class should not be employed for production inference.
-    """
-
-    # pylint: disable='line-too-long,abstract-method,arguments-differ,no-member'
-    # Adapted from: https://github.com/UKPLab/sentence-transformers/blob/cb08d92822ffcab9915564fd327e6579a5ed5830/examples/onnx_inference/onnx_inference.ipynb
-    def __init__(self, config: transformers.BertConfig, *args: t.Any, **kwargs: t.Any):
-        super().__init__(config, *args, **kwargs)
-        self.sentence_embedding = torch.nn.Identity()
-
-    def forward(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor, token_type_ids: torch.Tensor
-    ) -> torch.Tensor:
-        out: torch.Tensor = (
-            super()  # type: ignore
-            .forward(
-                input_ids,
-                attention_mask=attention_mask,
-                token_type_ids=token_type_ids,
-            )
-            .last_hidden_state
+        n = len(sentences)
+        embeddings = torch.empty(n, self._emb_dim, requires_grad=False)
+        length_sorted_idx = np.argsort([-len(item) for item in sentences])
+        pbar = tqdm.auto.tqdm(
+            range(0, n, batch_size), desc="Batches", disable=not show_progress_bar
         )
 
-        # Average pooling
-        input_mask_expanded = attention_mask.unsqueeze(-1).expand(out.size())
-        sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+        with torch.no_grad():
+            for i_start in pbar:
+                i_end = i_start + batch_size
+                batch = [str(sentences[k]) for k in length_sorted_idx[i_start:i_end]]
+                out = self._pipeline(batch, batch_size=len(batch), output_value=output_value)
+                embeddings[i_start:i_end, :] = torch.vstack(out)
 
-        out = torch.sum(out * input_mask_expanded, 1)
-        out = out / sum_mask
-        out = self.sentence_embedding(out)
+        embeddings = embeddings.to("cpu")
+        embeddings = embeddings[np.argsort(length_sorted_idx), :]
 
-        return out
+        if embeddings.numel() and normalize_embeddings:
+            torch.nn.functional.normalize(embeddings, p=2, dim=-1, out=embeddings)
+
+        if convert_to_numpy:
+            return np.asfarray(embeddings.numpy())
+
+        if input_is_single_string:
+            return embeddings[0, :]
+
+        return embeddings
+
+    def __call__(
+        self, *args: t.Any, **kwargs: t.Any
+    ) -> t.Union[torch.Tensor, npt.NDArray[np.float64]]:
+        return self.encode(*args, **kwargs)
