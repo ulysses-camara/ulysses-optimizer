@@ -210,7 +210,7 @@ def to_onnx(
         disable_bias_skip_layer_norm_fusion=False,
         disable_bias_gelu_fusion=False,
         enable_gelu_approximation=True,
-        optimize_for_gpu=device,
+        optimize_for_gpu=device.strip().lower() == "cuda",
     )
 
     ooq = optimum.onnxruntime.quantization
