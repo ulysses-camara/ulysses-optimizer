@@ -15,13 +15,7 @@ Optimization and quantization methods for pretrained models. While the resources
 ---
 
 ## Supported algorithms
-All models must be in PyTorch format (tensorflow is not supported). Models in ONNX format are executed with `onnxruntime` package, while models in Torch JIT format are executed with `torch`.
-
-| Algorithm | Package | *ONNX* | *Torch JIT* |
-| --------- | ------- | ------ | ----------- |
-| (Bi-)LSTM | `torch` | Soon  | Soon |
-| BERT      | `transformers` | Soon  | Soon |
-| SBERT     | `sentence_transformers` | :heavy_check_mark: | Later |
+- [SentenceTransformers](./https://github.com/UKPLab/sentence-transformers): static and dynamic quantization.
 
 ---
 
@@ -48,44 +42,35 @@ pip install "otimizador[dev] @ git+https://github.com/ulysses-camara/ulysses-opt
 ### Sentence BERT (SBERT) example
 ```python
 import otimizador
-import sentence_transformers
 
-pretrained_sbert = sentence_transformers.SentenceTransformer(
-    "<path_to_my_pretrained_model>",
+model_uri = "<path_to_my_sbert_pretrained_model>"
+
+# Quantize SBERT model
+quantized_model_paths = otimizador.sbert.to_onnx(
+    model_uri=model_uri,
+    output_dir="./onnx_models",
     device="cpu",
 )
 
-# Quantize SBERT model
-quantized_model_paths = otimizador.sbert.quantize_as_onnx(
-    model=pretrained_sbert,
-    task_name="quantization_test",
-    quantized_model_dirpath="./quantized_models",
-)
-
 # Load quantized model
-quantized_model = otimizador.sbert.ONNXSBERT(
-    uri_model=quantized_model_paths.output_uri,
-    uri_tokenizer=pretrained_sbert.tokenizer.name_or_path,
-)
+quantized_model = otimizador.sbert.ONNXSBERT(quantized_model_paths.output_uri)
 
 # Use quantized model for inference
-logits = quantized_model(
+embeddings = quantized_model(
     ["Exemplo de inferência", "Olá"],
-    batch_size=1,
+    batch_size=2,
     show_progress_bar=True,
 )
 
-print(logits.shape)
+print(embeddings.shape)
 # >>> (2, 768)
 
-print(logits)
+print(embeddings)
 # >>> [[ 0.21573983  0.09294462  0.81110716 ...  0.1845829   0.44957376
 # ...   -0.8655164 ]
 # ...  [ 0.14329034  0.39949742  0.62624204 ...  0.34124994  0.5183566
 # ...   -0.4494257 ]]
 ```
-
-Check [example notebooks](./notebooks) for more information.
 
 ---
 
