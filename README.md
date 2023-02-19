@@ -15,7 +15,7 @@ Optimization and quantization methods for pretrained models. While the resources
 ---
 
 ## Supported algorithms
-- [SentenceTransformers](./https://github.com/UKPLab/sentence-transformers): static and dynamic quantization.
+- [SentenceTransformers](https://github.com/UKPLab/sentence-transformers): static and dynamic quantization.
 
 ---
 
