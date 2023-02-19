@@ -80,15 +80,16 @@ class ONNXSBERT:
         URI to load pretrained model from. If `local_files_only=True`, then it must
         be a local file.
 
-    uri_tokenizer : str
+    uri_tokenizer : str or None, default=None
         URI to pretrained text Tokenizer.
+        If None, will load tokenizer from `uri_model`.
 
     local_files_only : bool, default=True
         If True, will search only for local pretrained model and tokenizers.
         If False, may download models from Huggingface HUB, if necessary.
 
-    cache_dir_tokenizer : str, default='./cache/tokenizers'
-        Cache directory for text tokenizer.
+    cache_dir : str, default='./cache'
+        Cache directory.
     """
 
     def __init__(
@@ -96,19 +97,20 @@ class ONNXSBERT:
         uri_model: str,
         uri_tokenizer: t.Optional[str] = None,
         local_files_only: bool = True,
-        cache_dir_tokenizer: str = "./cache/tokenizers",
+        cache_dir: str = "./cache",
     ):
         self.tokenizer = transformers.BertTokenizer.from_pretrained(
             uri_tokenizer or uri_model,
             local_files_only=local_files_only,
-            cache_dir=cache_dir_tokenizer,
+            cache_dir=cache_dir,
             use_fast=True,
         )
 
         self._model = optimum.onnxruntime.ORTModelForFeatureExtraction.from_pretrained(
             uri_model,
             from_transformers=False,
-            local_files_only=True,
+            local_files_only=local_files_only,
+            cache_dir=cache_dir,
         )
 
         self._emb_dim = 768
@@ -149,7 +151,7 @@ class ONNXSBERT:
         return postprocessing_modules
 
     @property
-    def model(self) -> onnxruntime.InferenceSession:  # type: ignore
+    def model(self) -> optimum.onnxruntime.ORTModelForFeatureExtraction:
         """Return ONNX SBERT model."""
         # pylint: disable='undefined-variable'
         return self._model
@@ -194,8 +196,8 @@ class ONNXSBERT:
             for i_start in pbar:
                 i_end = i_start + batch_size
                 batch = [str(sentences[k]) for k in length_sorted_idx[i_start:i_end]]
-                out = self._pipeline(batch, batch_size=len(batch), output_value=output_value)
-                embeddings[i_start:i_end, :] = torch.vstack(out)
+                batch_out = self._pipeline(batch, batch_size=len(batch), output_value=output_value)
+                embeddings[i_start:i_end, :] = torch.vstack(batch_out)
 
         embeddings = embeddings.to("cpu")
         embeddings = embeddings[np.argsort(length_sorted_idx), :]
@@ -203,13 +205,15 @@ class ONNXSBERT:
         if embeddings.numel() and normalize_embeddings:
             torch.nn.functional.normalize(embeddings, p=2, dim=-1, out=embeddings)
 
+        out: t.Union[torch.Tensor, npt.NDArray[np.float64]] = embeddings
+
         if convert_to_numpy:
-            return np.asfarray(embeddings.numpy())
+            out = np.asfarray(embeddings.numpy())
 
         if input_is_single_string:
-            return embeddings[0, :]
+            out = embeddings[0, :]
 
-        return embeddings
+        return out
 
     def __call__(
         self, *args: t.Any, **kwargs: t.Any
