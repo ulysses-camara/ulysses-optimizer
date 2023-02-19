@@ -78,10 +78,10 @@ def preprocess_function(
 
 def to_onnx(
     model_uri: str,
-    quantized_model_filename: t.Optional[str] = None,
-    optimized_model_filename: t.Optional[str] = None,
-    onnx_model_filename: t.Optional[str] = None,
     output_dir: str = "./quantized_models",
+    onnx_model_filename: t.Optional[str] = None,
+    optimized_model_filename: t.Optional[str] = None,
+    quantized_model_filename: t.Optional[str] = None,
     device: str = "cpu",
     operators_to_quantize: t.Tuple[str, ...] = (
         "MatMul",
@@ -108,20 +108,20 @@ def to_onnx(
     model_uri : str
         Sentence Transformer URI to be quantized.
 
-    quantized_model_filename : str or None, default=None
-        Output filename.
+    output_dir : str, default='./quantized_models'
+        Path to output file directory, which the resulting quantized model will be stored,
+        alongside any possible coproducts also generated during the quantization procedure.
+
+    onnx_model_filename : str or None, default=None
+        Filename of base model in ONNX format. This preprocessing is necessary for optimization and
+        quantization.
 
     optimized_model_filename : str or None, deault=None
         Optimized model filename. If None, a random temporary name will be created, and the
         optimized model is removed after the creation of the quantized model.
 
-    onnx_model_filename : str or None, default=None
-        Filename of base model in ONNX format. This preprocessing is necessary for optimization and
-        quantization. If None, a name will be derived from `quantized_model_filename`.
-
-    output_dir : str, default='./quantized_models'
-        Path to output file directory, which the resulting quantized model will be stored,
-        alongside any possible coproducts also generated during the quantization procedure.
+    quantized_model_filename : str or None, default=None
+        Quantized model filename.
 
     device : {'cpu', 'cuda'}, default='cpu'
         Device for which the model is to be optimized.
