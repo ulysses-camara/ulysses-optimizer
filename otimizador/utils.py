@@ -16,7 +16,7 @@ class QuantizationOutputONNX(t.NamedTuple):
 
 
 def build_random_model_name(base_name: str) -> str:
-    """TODO"""
+    """Build model name using random bits and current UTC time."""
     random_name = "_".join(
         [
             base_name,

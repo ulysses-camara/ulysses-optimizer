@@ -23,7 +23,14 @@ __all__ = [
 def read_additional_submodules(
     source_dir: str, submodule_pattern: str = r"[0-9]+_[A-Z][a-z]*"
 ) -> t.List[str]:
-    """TODO"""
+    """Read SentenceTransformer additional submodules from disk.
+
+    SentenceTransformer submodules are stored as subdirectories named in the format
+    `ID_SubmoduleType`, with a config.json file within.
+
+    The argument `submodule_pattern` is a regular expression that matches the pattern
+    described above.
+    """
     source_dir = utils.expand_path(source_dir)
     submodules = glob.glob(os.path.join(source_dir, "*"))
     submodules = [
@@ -40,7 +47,14 @@ def read_additional_submodules(
 def copy_aditional_submodules(
     source_dir: str, target_dir: str, submodule_pattern: str = r"[0-9]+_[A-Z][a-z]*"
 ) -> None:
-    """TODO"""
+    """Copy SentenceTransformer submodules from `source_dir` to `target_dir`.
+
+    SentenceTransformer submodules are stored as subdirectories named in the format
+    `ID_SubmoduleType`, with a config.json file within.
+
+    The argument `submodule_pattern` is a regular expression that matches the pattern
+    described above.
+    """
     submodules = read_additional_submodules(
         source_dir=source_dir, submodule_pattern=submodule_pattern
     )
@@ -51,8 +65,13 @@ def copy_aditional_submodules(
         )
 
 
-def preprocess_function(examples, tokenizer, content_column: str = "text"):
-    return tokenizer(
+def preprocess_function(
+    examples: t.Dict[str, t.List[str]],
+    tokenizer: transformers.AutoTokenizer,
+    content_column: str = "text",
+) -> t.Dict[str, t.List[t.Any]]:
+    """Preprocess calibration dataset for static quantization."""
+    return tokenizer(  # type: ignore
         examples[content_column], padding="max_length", max_length=128, truncation=True
     )
 
@@ -93,47 +112,52 @@ def to_onnx(
         Output filename.
 
     optimized_model_filename : str or None, deault=None
-        TODO
+        Optimized model filename. If None, a random temporary name will be created, and the
+        optimized model is removed after the creation of the quantized model.
 
     onnx_model_filename : str or None, default=None
-        Name to save intermediary model in ONNX format in `output_dir`. This
-        transformation is necessary to perform all necessary optimization and quantization.
-        If None, a name will be derived from `quantized_model_filename`.
+        Filename of base model in ONNX format. This preprocessing is necessary for optimization and
+        quantization. If None, a name will be derived from `quantized_model_filename`.
 
     output_dir : str, default='./quantized_models'
         Path to output file directory, which the resulting quantized model will be stored,
         alongside any possible coproducts also generated during the quantization procedure.
 
-    device : str, default='cpu'
-        TODO
+    device : {'cpu', 'cuda'}, default='cpu'
+        Device for which the model is to be optimized.
 
     check_cached : bool, default=True
         If True, check whether a model with the same model exists before quantization.
         If this happens to be the case, this function will not produce any new models.
 
     static_quantization_dataset_uri : str or None, default=None
-        TODO
+        Path to dataset for quantized parameter range calibration.
+        If provided, will perform static quantization.
+        If None, will perform dynamic quantization.
 
     content_column : str, default='text'
-        TODO
+        Column name from `static_quantization_dataset_uri` where sentence textual contents are
+        kept.
 
     optimize_before_quantization : bool, default=True
-        TODO
+        If True, optimize model before quantization.
 
     optimization_level : int, default=99
-        TODO
+        Optimization level to use when `optimize_before_quantization=True`. Check `optimum`
+        documentation for more information.
 
     keep_onnx_model : bool, default=False
-        TODO
+        If True, keep ONNX base model (saved as `onnx_model_filename`).
+        If False, remove this model after quantization.
 
     verbose : bool, default=False
-        TODO
+        If True, enable print messages.
 
     Returns
     -------
     paths : t.Tuple[str, ...]
-        File URIs related from generated files during the quantization procedure. The
-        final model URI can be accessed from the `output_uri` attribute.
+        File URIs related from generated files during the quantization procedure. The final model
+        URI can be accessed from the `output_uri` attribute.
     """
     output_dir = utils.expand_path(output_dir)
 
@@ -247,7 +271,7 @@ def to_onnx(
 
         quantizer = optimum.onnxruntime.ORTQuantizer.from_pretrained(ort_model)
 
-        if is_static_quant:
+        if is_static_quant and static_quantization_dataset_uri:
             tokenizer = transformers.AutoTokenizer.from_pretrained(
                 model_uri,
                 local_files_only=True,

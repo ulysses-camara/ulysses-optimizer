@@ -164,7 +164,7 @@ class ONNXSBERT:
 
     def encode(
         self,
-        sentences: t.Union[str, t.List[str]],
+        sentences: t.Union[str, t.Sequence[str]],
         batch_size: int = 8,
         show_progress_bar: bool = True,
         output_value: str = "sentence_embedding",
@@ -200,16 +200,18 @@ class ONNXSBERT:
         embeddings = embeddings.to("cpu")
         embeddings = embeddings[np.argsort(length_sorted_idx), :]
 
-        if embeddings.size and normalize_embeddings:
+        if embeddings.numel() and normalize_embeddings:
             torch.nn.functional.normalize(embeddings, p=2, dim=-1, out=embeddings)
 
         if convert_to_numpy:
-            return embeddings.numpy()
+            return np.asfarray(embeddings.numpy())
 
         if input_is_single_string:
             return embeddings[0, :]
 
         return embeddings
 
-    def __call__(self, *args: t.Any, **kwargs: t.Any) -> npt.NDArray[np.float64]:
+    def __call__(
+        self, *args: t.Any, **kwargs: t.Any
+    ) -> t.Union[torch.Tensor, npt.NDArray[np.float64]]:
         return self.encode(*args, **kwargs)
