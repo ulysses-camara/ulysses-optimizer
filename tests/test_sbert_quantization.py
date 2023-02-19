@@ -7,7 +7,6 @@ import shutil
 import pytest
 import sentence_transformers
 import numpy as np
-import torch, torch.nn.functional
 
 import otimizador
 

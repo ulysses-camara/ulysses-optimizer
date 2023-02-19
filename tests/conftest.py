@@ -4,7 +4,6 @@ import shutil
 
 import pytest
 import sentence_transformers
-import datasets
 import buscador
 
 
