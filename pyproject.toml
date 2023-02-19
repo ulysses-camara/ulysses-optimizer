@@ -4,13 +4,13 @@ requires = ["flit_core >=3.2,<4"]
 
 [project]
 name = "otimizador"
-version = "1.0.0"
+version = "1.0.1"
 description = "Optimization methods for Ulysses pretrained models."
 authors = [
     {name="felsiq", email= "felipe.siqueira@usp.br"}
 ]
 
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 
 dependencies = [
     "tqdm >= 4.64.0",
@@ -90,7 +90,7 @@ envlist = py37, py39, mypy, pylint
 isolated_build = true
 [gh-actions]
 python =
-    3.7: py37, mypy, pylint
+    3.8: py37, mypy, pylint
     3.9: py39
 [testenv]
 whitelist_externals = flit
@@ -99,13 +99,13 @@ commands =
     pip install '.[dev, sentence]'
     python -m pytest
 [testenv:mypy]
-basepython = python3.7
+basepython = python3.8
 deps = mypy
 commands =
     python -m mypy --install-types --non-interactive otimizador/
     python -m mypy otimizador/
 [testenv:pylint]
-basepython = python3.7
+basepython = python3.8
 deps =
     pylint
     pytest
