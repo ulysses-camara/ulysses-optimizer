@@ -16,10 +16,12 @@ def test_quantization_sbert_custom_name(
 ):
     model_uri = fixture_sbert_model.get_submodule("0.auto_model").name_or_path
 
+    custom_name = "custom_sbert_name"
+
     paths_a = otimizador.sbert.to_onnx(
         model_uri=model_uri,
         output_dir=fixture_quantized_model_dir,
-        quantized_model_filename="custom_sbert_name",
+        quantized_model_filename=custom_name,
         check_cached=False,
         keep_onnx_model=False,
     )
@@ -29,7 +31,7 @@ def test_quantization_sbert_custom_name(
     paths_b = otimizador.sbert.to_onnx(
         model_uri=model_uri,
         output_dir=fixture_quantized_model_dir,
-        quantized_model_filename="custom_sbert_name",
+        quantized_model_filename=custom_name,
         check_cached=True,
         keep_onnx_model=False,
     )
@@ -40,7 +42,7 @@ def test_quantization_sbert_custom_name(
     assert paths_a == paths_b
 
     assert paths_a.output_uri == paths_a.onnx_quantized_uri
-    assert os.path.basename(paths_a.output_uri) == "custom_sbert_name_onnx"
+    assert os.path.basename(paths_a.output_uri) == custom_name
     assert os.path.exists(paths_a.output_uri)
 
     shutil.rmtree(paths_a.output_uri)

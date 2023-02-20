@@ -44,12 +44,6 @@ def build_onnx_default_uris(
     if not quantized_model_filename:
         quantized_model_filename = f"q_{onnx_model_filename}"
 
-    if not onnx_model_filename.endswith(".onnx"):
-        onnx_model_filename += ".onnx"
-
-    if not quantized_model_filename.endswith(".onnx"):
-        quantized_model_filename += ".onnx"
-
     os.makedirs(output_dir, exist_ok=True)
 
     onnx_base_uri = os.path.join(output_dir, onnx_model_filename)

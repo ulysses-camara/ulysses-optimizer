@@ -182,13 +182,10 @@ def to_onnx(
         onnx_model_filename=onnx_model_filename,
     )
 
-    onnx_base_uri = paths.onnx_base_uri.replace(".onnx", "_onnx")
-    quantized_model_uri = paths.output_uri.replace(".onnx", "_onnx")
-
     paths = utils.QuantizationOutputONNX(
-        onnx_base_uri=(onnx_base_uri if keep_onnx_model else quantized_model_uri),
-        onnx_quantized_uri=quantized_model_uri,
-        output_uri=quantized_model_uri,
+        onnx_base_uri=paths.onnx_base_uri if keep_onnx_model else paths.onnx_quantized_uri,
+        onnx_quantized_uri=paths.onnx_quantized_uri,
+        output_uri=paths.output_uri,
     )
 
     if check_cached and os.path.exists(paths.onnx_quantized_uri):
