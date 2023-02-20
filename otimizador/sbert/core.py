@@ -98,6 +98,8 @@ def to_onnx(
     content_column: str = "text",
     optimize_before_quantization: bool = True,
     optimization_level: int = 99,
+    quant_per_channel: bool = False,
+    quant_reduce_range: bool = True,
     keep_onnx_model: bool = False,
     verbose: bool = False,
 ) -> utils.QuantizationOutputONNX:
@@ -145,6 +147,16 @@ def to_onnx(
     optimization_level : int, default=99
         Optimization level to use when `optimize_before_quantization=True`. Check `optimum`
         documentation for more information.
+
+    quant_per_channel : bool, default=False
+        If True, quantize model parameters separated by channel. The quantized model may perform
+        statistically better at the expense of being computationally heavier.
+        Available only for dynamic quantization. If `static_quantization_dataset_uri` is provided,
+        this parameter is automatically set to False.
+
+    quant_reduce_range : bool, default=True
+        If True, quantize using 7-bits instead of 8-bits.
+        If False, dynamic quantization may perform very poorly.
 
     keep_onnx_model : bool, default=False
         If True, keep ONNX base model (saved as `onnx_model_filename`).
@@ -220,7 +232,8 @@ def to_onnx(
         ),
         activations_dtype=ooq.QuantType.QInt8 if is_static_quant else ooq.QuantType.QUInt8,
         weights_dtype=ooq.QuantType.QInt8,
-        per_channel=not is_static_quant,
+        per_channel=quant_per_channel and not is_static_quant,
+        reduce_range=quant_reduce_range,
         operators_to_quantize=list(operators_to_quantize),
     )
     quant_ranges = None
