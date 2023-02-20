@@ -26,10 +26,12 @@ def read_additional_submodules(
     """Read SentenceTransformer additional submodules from disk.
 
     SentenceTransformer submodules are stored as subdirectories named in the format
-    `ID_SubmoduleType`, with a config.json file within.
+    `INDEX_SubmoduleType`, with a config.json file within.
 
-    The argument `submodule_pattern` is a regular expression that matches the pattern
-    described above.
+    The argument `submodule_pattern` is a regular expression that matches the submodule
+    name pattern as described above.
+
+    The submodules are returned in a list sorted by their INDEX.
     """
     source_dir = utils.expand_path(source_dir)
     submodules = glob.glob(os.path.join(source_dir, "*"))
@@ -38,8 +40,8 @@ def read_additional_submodules(
         for submodule in submodules
         if re.match(submodule_pattern, os.path.basename(submodule))
     ]
-    submodules = sorted(
-        submodules, key=lambda submodule: int(os.path.basename(submodule).split("_")[0])
+    submodules.sort(
+        key=lambda submodule: int(os.path.basename(submodule).split("_")[0])
     )
     return submodules
 
