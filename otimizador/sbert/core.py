@@ -172,6 +172,7 @@ def to_onnx(
         URI can be accessed from the `output_uri` attribute.
     """
     output_dir = utils.expand_path(output_dir)
+    model_uri = utils.expand_path(model_uri)
 
     if not optimize_before_quantization:
         optimized_model_filename = None
