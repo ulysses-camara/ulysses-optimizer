@@ -219,7 +219,7 @@ def to_onnx(
         disable_bias_skip_layer_norm_fusion=False,
         disable_bias_gelu_fusion=False,
         enable_gelu_approximation=True,
-        optimize_for_gpu=device.strip().lower() == "cuda",
+        optimize_for_gpu=device.strip().lower().startswith("cuda"),
     )
 
     ooq = optimum.onnxruntime.quantization
@@ -242,7 +242,7 @@ def to_onnx(
 
     ort_model = optimum.onnxruntime.ORTModelForFeatureExtraction.from_pretrained(
         model_uri,
-        from_transformers=True,
+        export=True,
         local_files_only=True,
     )
 
@@ -275,7 +275,7 @@ def to_onnx(
     try:
         ort_model = optimum.onnxruntime.ORTModelForFeatureExtraction.from_pretrained(
             optimized_model_filename or temp_optimized_model_uri,
-            from_transformers=not optimize_before_quantization,
+            export=not optimize_before_quantization,
             local_files_only=True,
         )
 
@@ -294,6 +294,9 @@ def to_onnx(
                 ),
                 remove_columns=content_column,
             )
+
+            if "token_type_ids" not in ort_model.inputs_names and "token_type_ids" in calibration_dataset.column_names:
+                calibration_dataset = calibration_dataset.remove_columns(["token_type_ids"])
 
             calibration_config = (
                 optimum.onnxruntime.configuration.AutoCalibrationConfig.percentiles(

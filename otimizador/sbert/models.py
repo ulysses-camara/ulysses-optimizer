@@ -44,9 +44,10 @@ class _SentenceEmbeddingPipeline(transformers.Pipeline):
     def preprocess(
         self, input_: t.List[str], max_length: int = 512, **kwargs: t.Any
     ) -> t.Dict[str, torch.Tensor]:
-        return self.tokenizer(  # type: ignore
+        out = self.tokenizer(  # type: ignore
             input_, padding="longest", truncation=True, return_tensors="pt", max_length=max_length
         )
+        return out
 
     def _forward(
         self, input_tensors: t.Dict[str, torch.Tensor], **kwargs: t.Any
@@ -99,7 +100,7 @@ class ONNXSBERT:
         local_files_only: bool = True,
         cache_dir: str = "./cache",
     ):
-        self.tokenizer = transformers.BertTokenizer.from_pretrained(
+        self.tokenizer = transformers.AutoTokenizer.from_pretrained(
             uri_tokenizer or uri_model,
             local_files_only=local_files_only,
             cache_dir=cache_dir,
@@ -112,6 +113,11 @@ class ONNXSBERT:
             local_files_only=local_files_only,
             cache_dir=cache_dir,
         )
+
+        self._model.output_names.setdefault("last_hidden_state", self._model.output_names.get("token_embeddings", 0))
+
+        if "token_type_ids" not in self.model.inputs_names and "token_type_ids" in self.tokenizer.model_input_names:
+            self.tokenizer.model_input_names.remove("token_type_ids")
 
         self._emb_dim = 768
 
