@@ -103,7 +103,7 @@ class ONNXSBERT:
 
         self._model = optimum.onnxruntime.ORTModelForFeatureExtraction.from_pretrained(
             uri_model,
-            from_transformers=False,
+            export=False,
             local_files_only=local_files_only,
             cache_dir=cache_dir,
         )
