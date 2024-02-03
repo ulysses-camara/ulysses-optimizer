@@ -82,11 +82,7 @@ def gen_dummy_inputs_for_tracing(
     batch_size: int, vocab_size: int, seq_length: int
 ) -> t.Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Generate dummy inputs for Torch JIT tracing."""
-    dummy_input_ids = torch.randint(
-        low=0, high=vocab_size, size=(batch_size, seq_length), dtype=torch.long
-    )
-    dummy_attention_mask = torch.randint(
-        low=0, high=2, size=(batch_size, seq_length), dtype=torch.long
-    )
+    dummy_input_ids = torch.randint(low=0, high=vocab_size, size=(batch_size, seq_length), dtype=torch.long)
+    dummy_attention_mask = torch.randint(low=0, high=2, size=(batch_size, seq_length), dtype=torch.long)
     dummy_token_type_ids = torch.zeros(batch_size, seq_length, dtype=torch.long)
     return dummy_input_ids, dummy_attention_mask, dummy_token_type_ids

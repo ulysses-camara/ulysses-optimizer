@@ -23,9 +23,7 @@ __all__ = [
 
 class _SentenceEmbeddingPipeline(transformers.Pipeline):
     # pylint: disable='unused-argument'
-    def __init__(
-        self, *args: t.Any, postprocessing_modules: t.List[torch.nn.Module], **kwargs: t.Any
-    ):
+    def __init__(self, *args: t.Any, postprocessing_modules: t.List[torch.nn.Module], **kwargs: t.Any):
         super().__init__(*args, **kwargs)
         self.postprocessing_modules = postprocessing_modules
 
@@ -41,17 +39,13 @@ class _SentenceEmbeddingPipeline(transformers.Pipeline):
         }
         return preprocess_kwargs, {}, postprocess_kwargs
 
-    def preprocess(
-        self, input_: t.List[str], max_length: int = 512, **kwargs: t.Any
-    ) -> t.Dict[str, torch.Tensor]:
+    def preprocess(self, input_: t.List[str], max_length: int = 512, **kwargs: t.Any) -> t.Dict[str, torch.Tensor]:
         out = self.tokenizer(  # type: ignore
             input_, padding="longest", truncation=True, return_tensors="pt", max_length=max_length
         )
         return out
 
-    def _forward(
-        self, input_tensors: t.Dict[str, torch.Tensor], **kwargs: t.Any
-    ) -> t.Dict[str, torch.Tensor]:
+    def _forward(self, input_tensors: t.Dict[str, torch.Tensor], **kwargs: t.Any) -> t.Dict[str, torch.Tensor]:
         outputs = self.model(**input_tensors)
         return {"token_embeddings": outputs[0], "attention_mask": input_tensors["attention_mask"]}
 
@@ -149,7 +143,7 @@ class ONNXSBERT:
         submodules = core.read_additional_submodules(source_dir=base_dir, return_types=True)
         postprocessing_modules: t.List[torch.nn.Module] = []
 
-        for (submodule_name, submodule_type) in submodules:
+        for submodule_name, submodule_type in submodules:
             submodule_uri = os.path.join(base_dir, submodule_name)
             submodule_type = submodule_type.split(".")[-1]
             new_submodule = getattr(sentence_transformers.models, submodule_type).load(submodule_uri)
@@ -195,9 +189,7 @@ class ONNXSBERT:
         n = len(sentences)
         embeddings = torch.empty(n, self._emb_dim, requires_grad=False)
         length_sorted_idx = np.argsort([-len(item) for item in sentences])
-        pbar = tqdm.auto.tqdm(
-            range(0, n, batch_size), desc="Batches", disable=not show_progress_bar
-        )
+        pbar = tqdm.auto.tqdm(range(0, n, batch_size), desc="Batches", disable=not show_progress_bar)
 
         with torch.no_grad():
             for i_start in pbar:
@@ -222,7 +214,5 @@ class ONNXSBERT:
 
         return out
 
-    def __call__(
-        self, *args: t.Any, **kwargs: t.Any
-    ) -> t.Union[torch.Tensor, npt.NDArray[np.float64]]:
+    def __call__(self, *args: t.Any, **kwargs: t.Any) -> t.Union[torch.Tensor, npt.NDArray[np.float64]]:
         return self.encode(*args, **kwargs)

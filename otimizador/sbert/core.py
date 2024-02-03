@@ -54,9 +54,7 @@ def copy_aditional_submodules(source_dir: str, target_dir: str) -> None:
     for submodule_name in submodules:
         submodule_uri = os.path.join(source_dir, submodule_name)
         if os.path.exists(submodule_uri):
-            shutil.copytree(src=submodule_uri,
-                            dst=os.path.join(target_dir, submodule_name),
-                            dirs_exist_ok=True)
+            shutil.copytree(src=submodule_uri, dst=os.path.join(target_dir, submodule_name), dirs_exist_ok=True)
 
     shutil.copyfile(
         os.path.join(source_dir, "modules.json"),
@@ -70,9 +68,7 @@ def preprocess_function(
     content_column: str = "text",
 ) -> t.Dict[str, t.List[t.Any]]:
     """Preprocess calibration dataset for static quantization."""
-    return tokenizer(  # type: ignore
-        examples[content_column], padding="max_length", max_length=128, truncation=True
-    )
+    return tokenizer(examples[content_column], padding="max_length", max_length=128, truncation=True)  # type: ignore
 
 
 def to_onnx(
@@ -227,9 +223,7 @@ def to_onnx(
     quantization_config = optimum.onnxruntime.configuration.QuantizationConfig(
         is_static=is_static_quant,
         format=ooq.QuantFormat.QDQ if is_static_quant else ooq.QuantFormat.QOperator,
-        mode=(
-            ooq.QuantizationMode.QLinearOps if is_static_quant else ooq.QuantizationMode.IntegerOps
-        ),
+        mode=(ooq.QuantizationMode.QLinearOps if is_static_quant else ooq.QuantizationMode.IntegerOps),
         activations_dtype=ooq.QuantType.QInt8 if is_static_quant else ooq.QuantType.QUInt8,
         weights_dtype=ooq.QuantType.QInt8,
         per_channel=quant_per_channel and not is_static_quant,
@@ -289,19 +283,15 @@ def to_onnx(
 
             calibration_dataset = datasets.load_from_disk(static_quantization_dataset_uri)
             calibration_dataset = calibration_dataset.map(
-                functools.partial(
-                    preprocess_function, tokenizer=tokenizer, content_column=content_column
-                ),
+                functools.partial(preprocess_function, tokenizer=tokenizer, content_column=content_column),
                 remove_columns=content_column,
             )
 
             if "token_type_ids" not in ort_model.inputs_names and "token_type_ids" in calibration_dataset.column_names:
                 calibration_dataset = calibration_dataset.remove_columns(["token_type_ids"])
 
-            calibration_config = (
-                optimum.onnxruntime.configuration.AutoCalibrationConfig.percentiles(
-                    calibration_dataset, percentile=99.995
-                )
+            calibration_config = optimum.onnxruntime.configuration.AutoCalibrationConfig.percentiles(
+                calibration_dataset, percentile=99.995
             )
 
             onnx_augmented_model_name = utils.build_random_model_name("augmented_model.onnx")
@@ -333,11 +323,7 @@ def to_onnx(
         copy_aditional_submodules(source_dir=model_uri, target_dir=paths.onnx_quantized_uri)
 
     finally:
-        if (
-            optimize_before_quantization
-            and temp_optimized_model_uri != model_uri
-            and os.path.exists(temp_optimized_model_uri)
-        ):
+        if optimize_before_quantization and temp_optimized_model_uri != model_uri and os.path.exists(temp_optimized_model_uri):
             shutil.rmtree(temp_optimized_model_uri)
 
         if onnx_augmented_model_name is not None:
