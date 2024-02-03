@@ -140,12 +140,13 @@ class ONNXSBERT:
 
     @staticmethod
     def _read_postprocessing_modules(base_dir: str) -> t.List[torch.nn.Module]:
-        submodules = core.read_additional_submodules(source_dir=base_dir)
+        submodules = core.read_additional_submodules(source_dir=base_dir, return_types=True)
         postprocessing_modules: t.List[torch.nn.Module] = []
 
-        for submodule in submodules:
-            submodule_type = os.path.basename(submodule).split("_")[-1]
-            new_submodule = getattr(sentence_transformers.models, submodule_type).load(submodule)
+        for (submodule_name, submodule_type) in submodules:
+            submodule_uri = os.path.join(base_dir, submodule_name)
+            submodule_type = submodule_type.split(".")[-1]
+            new_submodule = getattr(sentence_transformers.models, submodule_type).load(submodule_uri)
             postprocessing_modules.append(new_submodule)
 
         return postprocessing_modules

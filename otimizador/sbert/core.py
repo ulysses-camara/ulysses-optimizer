@@ -2,9 +2,8 @@
 import typing as t
 import os
 import shutil
-import glob
-import re
 import functools
+import json
 
 import optimum.onnxruntime
 import optimum.onnxruntime.preprocessors.passes as oopp
@@ -20,51 +19,49 @@ __all__ = [
 ]
 
 
-def read_additional_submodules(
-    source_dir: str, submodule_pattern: str = r"[0-9]+_[A-Z][a-z]*"
-) -> t.List[str]:
+def read_additional_submodules(source_dir: str, return_types: bool = False) -> t.List[str]:
     """Read SentenceTransformer additional submodules from disk.
 
     SentenceTransformer submodules are stored as subdirectories named in the format
     `INDEX_SubmoduleType`, with a config.json file within.
 
-    The argument `submodule_pattern` is a regular expression that matches the submodule
-    name pattern as described above.
-
-    The submodules are returned in a list sorted by their INDEX.
+    The submodules are returned in a list sorted by their 'IDX'.
     """
     source_dir = utils.expand_path(source_dir)
-    submodules = glob.glob(os.path.join(source_dir, "*"))
+
+    with open(os.path.join(source_dir, "modules.json"), "r", encoding="utf-8") as f_in:
+        submodules = sorted(json.load(f_in), key=lambda x: int(x["idx"]))
+
     submodules = [
-        submodule
+        (submodule["path"], submodule["type"])
         for submodule in submodules
-        if re.match(submodule_pattern, os.path.basename(submodule))
+        if submodule["path"] and submodule["type"] != "sentence_transformers.models.Transformer"
     ]
-    submodules.sort(
-        key=lambda submodule: int(os.path.basename(submodule).split("_")[0])
-    )
+
+    if not return_types:
+        return [path for path, _ in submodules]
+
     return submodules
 
 
-def copy_aditional_submodules(
-    source_dir: str, target_dir: str, submodule_pattern: str = r"[0-9]+_[A-Z][a-z]*"
-) -> None:
+def copy_aditional_submodules(source_dir: str, target_dir: str) -> None:
     """Copy SentenceTransformer submodules from `source_dir` to `target_dir`.
 
     SentenceTransformer submodules are stored as subdirectories named in the format
     `ID_SubmoduleType`, with a config.json file within.
-
-    The argument `submodule_pattern` is a regular expression that matches the pattern
-    described above.
     """
-    submodules = read_additional_submodules(
-        source_dir=source_dir, submodule_pattern=submodule_pattern
+    submodules = read_additional_submodules(source_dir=source_dir)
+    for submodule_name in submodules:
+        submodule_uri = os.path.join(source_dir, submodule_name)
+        if os.path.exists(submodule_uri):
+            shutil.copytree(src=submodule_uri,
+                            dst=os.path.join(target_dir, submodule_name),
+                            dirs_exist_ok=True)
+
+    shutil.copyfile(
+        os.path.join(source_dir, "modules.json"),
+        os.path.join(target_dir, "modules.json"),
     )
-    for submodule in submodules:
-        submodule_name = os.path.basename(submodule)
-        shutil.copytree(
-            src=submodule, dst=os.path.join(target_dir, submodule_name), dirs_exist_ok=True
-        )
 
 
 def preprocess_function(
