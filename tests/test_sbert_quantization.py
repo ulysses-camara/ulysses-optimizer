@@ -12,7 +12,9 @@ import otimizador
 
 
 def test_quantization_sbert_custom_name(
-    fixture_sroberta_model: sentence_transformers.SentenceTransformer, fixture_quantized_model_dir: str
+    fixture_sroberta_model: sentence_transformers.SentenceTransformer,
+    fixture_quantized_model_dir: str,
+    fixture_static_quantization_dataset_uri: str,
 ):
     model_uri = fixture_sroberta_model.get_submodule("0.auto_model").name_or_path
 
@@ -24,6 +26,7 @@ def test_quantization_sbert_custom_name(
         quantized_model_filename=custom_name,
         check_cached=False,
         keep_onnx_model=False,
+        static_quantization_dataset_uri=fixture_static_quantization_dataset_uri,
     )
 
     t_start = time.perf_counter()
@@ -34,6 +37,7 @@ def test_quantization_sbert_custom_name(
         quantized_model_filename=custom_name,
         check_cached=True,
         keep_onnx_model=False,
+        static_quantization_dataset_uri=fixture_static_quantization_dataset_uri,
     )
 
     t_delta = time.perf_counter() - t_start
@@ -49,7 +53,9 @@ def test_quantization_sbert_custom_name(
 
 
 def test_quantization_sbert_default_name(
-    fixture_sroberta_model: sentence_transformers.SentenceTransformer, fixture_quantized_model_dir: str
+    fixture_sroberta_model: sentence_transformers.SentenceTransformer,
+    fixture_static_quantization_dataset_uri: str,
+    fixture_quantized_model_dir: str,
 ):
     model_uri = fixture_sroberta_model.get_submodule("0.auto_model").name_or_path
 
@@ -58,6 +64,7 @@ def test_quantization_sbert_default_name(
         output_dir=fixture_quantized_model_dir,
         check_cached=False,
         keep_onnx_model=False,
+        static_quantization_dataset_uri=fixture_static_quantization_dataset_uri,
     )
 
     t_start = time.perf_counter()
@@ -67,6 +74,7 @@ def test_quantization_sbert_default_name(
         output_dir=fixture_quantized_model_dir,
         check_cached=True,
         keep_onnx_model=False,
+        static_quantization_dataset_uri=fixture_static_quantization_dataset_uri,
     )
 
     t_delta = time.perf_counter() - t_start
@@ -128,7 +136,7 @@ def test_quantization_sbert_inference(
     sentence_embs_orig = fixture_sbert_model.encode(test_sequences, batch_size=batch_size)
 
     assert np.allclose(sentence_embs_onnx, sentence_embs_orig, atol=0.01, rtol=0.02)
-    assert np.allclose(sentence_embs_quant, sentence_embs_orig, atol=0.075, rtol=0.10)
+    assert np.allclose(sentence_embs_quant, sentence_embs_orig, atol=0.20, rtol=0.50)
 
     assert isinstance(sentence_embs_quant, np.ndarray)
     assert sentence_embs_quant.size

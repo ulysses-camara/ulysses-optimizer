@@ -83,6 +83,8 @@ def to_onnx(
         "Attention",
         "LayerNormalization",
         "SkipLayerNormalization",
+        "RobertaSelfOutput",
+        "RobertaAttention",
         "Mul",
         "Div",
         "Add",
@@ -198,10 +200,7 @@ def to_onnx(
 
     if check_cached and os.path.exists(paths.onnx_quantized_uri):
         if verbose:  # pragma: no cover
-            print(
-                f"Found cached model in '{paths.onnx_quantized_uri}'.",
-                "Skipping model quantization.",
-            )
+            print(f"Found cached model in '{paths.onnx_quantized_uri}'. Skipping model quantization.")
 
         return paths
 
