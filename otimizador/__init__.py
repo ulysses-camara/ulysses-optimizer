@@ -13,4 +13,4 @@ try:
     __version__ = _importlib_metadata.version(__name__)
 
 except _importlib_metadata.PackageNotFoundError:
-    __version__ = "1.0.4"
+    __version__ = "1.1.0"
