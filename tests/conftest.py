@@ -10,9 +10,7 @@ import buscador
 @pytest.fixture(name="fixture_quantized_model_dir", scope="session")
 def fn_fixture_quantized_model_dir():
     try:
-        test_quantized_models_dir = os.path.join(
-            os.path.dirname(__file__), "./test_quantized_models"
-        )
+        test_quantized_models_dir = os.path.join(os.path.dirname(__file__), "./test_quantized_models")
         os.makedirs(test_quantized_models_dir, exist_ok=True)
         yield test_quantized_models_dir
 
@@ -23,9 +21,7 @@ def fn_fixture_quantized_model_dir():
 @pytest.fixture(name="fixture_pretrained_model_dir", scope="session")
 def fn_fixture_pretrained_model_dir():
     try:
-        test_pretrained_models_dir = os.path.join(
-            os.path.dirname(__file__), "./test_pretrained_models"
-        )
+        test_pretrained_models_dir = os.path.join(os.path.dirname(__file__), "./test_pretrained_models")
         os.makedirs(test_pretrained_models_dir, exist_ok=True)
         yield test_pretrained_models_dir
 
@@ -34,9 +30,9 @@ def fn_fixture_pretrained_model_dir():
         pass
 
 
-@pytest.fixture(name="fixture_sbert_model", scope="session")
-def fn_fixture_sbert_model(fixture_pretrained_model_dir: str):
-    model_name = "distil_sbert_br_ctimproved_12_epochs_v1"
+@pytest.fixture(name="fixture_sroberta_model", scope="session")
+def fn_fixture_sroberta_model(fixture_pretrained_model_dir: str):
+    model_name = "legal_sroberta_v1"
 
     buscador.download_resource(
         task_name="sentence_similarity",
@@ -57,6 +53,26 @@ def fn_fixture_sbert_model(fixture_pretrained_model_dir: str):
 @pytest.fixture(name="fixture_labse_model", scope="session")
 def fn_fixture_labse_model(fixture_pretrained_model_dir: str):
     model_name = "ulysses_LaBSE_30000"
+
+    buscador.download_resource(
+        task_name="sentence_similarity",
+        resource_name=model_name,
+        output_dir=fixture_pretrained_model_dir,
+        check_cached=True,
+        check_resource_hash=True,
+    )
+
+    sbert = sentence_transformers.SentenceTransformer(
+        os.path.join(fixture_pretrained_model_dir, model_name),
+        device="cpu",
+    )
+
+    yield sbert
+
+
+@pytest.fixture(name="fixture_anama_model", scope="session")
+def fn_fixture_anama_model(fixture_pretrained_model_dir: str):
+    model_name = "sbert_1mil_anama"
 
     buscador.download_resource(
         task_name="sentence_similarity",
