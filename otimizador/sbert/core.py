@@ -6,7 +6,7 @@ import functools
 import json
 
 import optimum.onnxruntime
-import optimum.onnxruntime.preprocessors.passes as oopp
+# import optimum.onnxruntime.preprocessors.passes as oopp
 import datasets
 import transformers
 
@@ -82,12 +82,20 @@ def to_onnx(
         "Attention",
         "LayerNormalization",
         "SkipLayerNormalization",
-        "RobertaSelfOutput",
-        "RobertaAttention",
         "Mul",
-        "Div",
         "Add",
+        "Gemm",
+        "Clip",
+        "Relu",
+        "Reshape",
+        "Transpose",
+        "Squeeze",
+        "Unsqueeze",
+        "Resize",
+        "Split",
         "Gather",
+        "Softmax",
+        "Where",
     ),
     check_cached: bool = True,
     static_quantization_dataset_uri: t.Optional[str] = None,
@@ -221,7 +229,7 @@ def to_onnx(
     quantization_config = optimum.onnxruntime.configuration.QuantizationConfig(
         is_static=is_static_quant,
         format=ooq.QuantFormat.QDQ if is_static_quant else ooq.QuantFormat.QOperator,
-        mode=(ooq.QuantizationMode.QLinearOps if is_static_quant else ooq.QuantizationMode.IntegerOps),
+        mode=ooq.QuantizationMode.QLinearOps if is_static_quant else ooq.QuantizationMode.IntegerOps,
         activations_dtype=ooq.QuantType.QInt8 if is_static_quant else ooq.QuantType.QUInt8,
         weights_dtype=ooq.QuantType.QInt8,
         per_channel=quant_per_channel and not is_static_quant,
@@ -303,12 +311,12 @@ def to_onnx(
                 onnx_augmented_model_name=onnx_augmented_model_name,
             )
 
-            quant_preprocessor = optimum.onnxruntime.preprocessors.QuantizationPreprocessor()
-            quant_preprocessor.register_pass(oopp.ExcludeLayerNormNodes())
-            quant_preprocessor.register_pass(oopp.ExcludeGeLUNodes())
-            quant_preprocessor.register_pass(oopp.ExcludeNodeAfter("Add", "Add"))
-            quant_preprocessor.register_pass(oopp.ExcludeNodeAfter("Gather", "Add"))
-            quant_preprocessor.register_pass(oopp.ExcludeNodeFollowedBy("Add", "Softmax"))
+            # quant_preprocessor = optimum.onnxruntime.preprocessors.QuantizationPreprocessor()
+            # quant_preprocessor.register_pass(oopp.ExcludeLayerNormNodes())
+            # quant_preprocessor.register_pass(oopp.ExcludeGeLUNodes())
+            # quant_preprocessor.register_pass(oopp.ExcludeNodeAfter("Add", "Add"))
+            # quant_preprocessor.register_pass(oopp.ExcludeNodeAfter("Gather", "Add"))
+            # quant_preprocessor.register_pass(oopp.ExcludeNodeFollowedBy("Add", "Softmax"))
 
         quantizer.quantize(
             save_dir=paths.onnx_quantized_uri,
