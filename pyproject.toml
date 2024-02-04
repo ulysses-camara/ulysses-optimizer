@@ -69,6 +69,7 @@ testpaths = [
 [tool.pylint.messages_control]
 generated-members = "torch.*,optimum.onnxruntime.*"
 jobs = 4
+max-line-length = 128
 disable = """
     too-few-public-methods,
     too-many-locals,
@@ -81,37 +82,35 @@ disable = """
 min-similarity-lines=10
 
 [tool.black]
-line-length=100
+line-length=128
 
 [tool.tox]
 legacy_tox_ini = """
 [tox]
-envlist = py37, py39, mypy, pylint
+envlist = py39, mypy, pylint
 isolated_build = true
 [gh-actions]
 python =
-    3.8: py37, mypy, pylint
-    3.9: py39
+    3.9: py39, mypy, pylint
 [testenv]
 whitelist_externals = flit
 commands =
-    pip install .
-    pip install '.[dev, sentence]'
+    pip install '.[dev,sentence]'
     python -m pytest
 [testenv:mypy]
-basepython = python3.8
+basepython = python3.9
 deps = mypy
 commands =
     python -m mypy --install-types --non-interactive otimizador/
     python -m mypy otimizador/
 [testenv:pylint]
-basepython = python3.8
+basepython = python3.9
 deps =
     pylint
     pytest
     pytest_socket
     sentence_transformers
-    buscador @ git+https://github.com/ulysses-camara/ulysses-fetcher@v1.2.3
+    buscador @ git+https://github.com/ulysses-camara/ulysses-fetcher@master
 commands =
     python -m pylint --disable='missing-function-docstring' tests/
     python -m pylint otimizador/
