@@ -19,7 +19,7 @@ __all__ = [
 ]
 
 
-def read_additional_submodules(source_dir: str, return_types: bool = False) -> t.List[str]:
+def read_additional_submodules(source_dir: str) -> t.List[t.Tuple[str, str]]:
     """Read SentenceTransformer additional submodules from disk.
 
     SentenceTransformer submodules are stored as subdirectories named in the format
@@ -38,9 +38,6 @@ def read_additional_submodules(source_dir: str, return_types: bool = False) -> t
         if submodule["path"] and submodule["type"] != "sentence_transformers.models.Transformer"
     ]
 
-    if not return_types:
-        return [path for path, _ in submodules]
-
     return submodules
 
 
@@ -50,8 +47,10 @@ def copy_aditional_submodules(source_dir: str, target_dir: str) -> None:
     SentenceTransformer submodules are stored as subdirectories named in the format
     `ID_SubmoduleType`, with a config.json file within.
     """
+    submodules: t.List[t.Tuple[str, str]]
     submodules = read_additional_submodules(source_dir=source_dir)
-    for submodule_name in submodules:
+
+    for submodule_name, _ in submodules:
         submodule_uri = os.path.join(source_dir, submodule_name)
         if os.path.exists(submodule_uri):
             shutil.copytree(src=submodule_uri, dst=os.path.join(target_dir, submodule_name), dirs_exist_ok=True)

@@ -40,7 +40,7 @@ class _SentenceEmbeddingPipeline(transformers.Pipeline):
         return preprocess_kwargs, {}, postprocess_kwargs
 
     def preprocess(self, input_: t.List[str], max_length: int = 512, **kwargs: t.Any) -> t.Dict[str, torch.Tensor]:
-        out = self.tokenizer(  # type: ignore
+        out: t.Dict[str, torch.Tensor] = self.tokenizer(
             input_, padding="longest", truncation=True, return_tensors="pt", max_length=max_length
         )
         return out
@@ -140,7 +140,9 @@ class ONNXSBERT:
 
     @staticmethod
     def _read_postprocessing_modules(base_dir: str) -> t.List[torch.nn.Module]:
-        submodules = core.read_additional_submodules(source_dir=base_dir, return_types=True)
+        submodules: t.List[t.Tuple[str, str]]
+        submodules = core.read_additional_submodules(source_dir=base_dir)
+
         postprocessing_modules: t.List[torch.nn.Module] = []
 
         for submodule_name, submodule_type in submodules:
