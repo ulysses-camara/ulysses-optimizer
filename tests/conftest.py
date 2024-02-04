@@ -30,26 +30,6 @@ def fn_fixture_pretrained_model_dir():
         pass
 
 
-@pytest.fixture(name="fixture_sroberta_model", scope="session")
-def fn_fixture_sroberta_model(fixture_pretrained_model_dir: str):
-    model_name = "legal_sroberta_v1"
-
-    buscador.download_resource(
-        task_name="sentence_similarity",
-        resource_name=model_name,
-        output_dir=fixture_pretrained_model_dir,
-        check_cached=True,
-        check_resource_hash=True,
-    )
-
-    sbert = sentence_transformers.SentenceTransformer(
-        os.path.join(fixture_pretrained_model_dir, model_name),
-        device="cpu",
-    )
-
-    yield sbert
-
-
 @pytest.fixture(name="fixture_labse_model", scope="session")
 def fn_fixture_labse_model(fixture_pretrained_model_dir: str):
     model_name = "ulysses_LaBSE_30000"

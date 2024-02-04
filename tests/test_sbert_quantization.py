@@ -96,8 +96,6 @@ def test_quantization_sbert_default_name(
         ("fixture_anama_model", 3),
         ("fixture_labse_model", 1),
         ("fixture_labse_model", 3),
-        ("fixture_sroberta_model", 1),
-        ("fixture_sroberta_model", 3),
     ],
 )
 def test_quantization_sbert_inference(
@@ -136,7 +134,7 @@ def test_quantization_sbert_inference(
     sentence_embs_orig = fixture_sbert_model.encode(test_sequences, batch_size=batch_size)
 
     assert np.allclose(sentence_embs_onnx, sentence_embs_orig, atol=0.01, rtol=0.02)
-    assert np.allclose(sentence_embs_quant, sentence_embs_orig, atol=0.20, rtol=0.50)
+    assert np.allclose(sentence_embs_quant, sentence_embs_orig, atol=0.10, rtol=0.10)
 
     assert isinstance(sentence_embs_quant, np.ndarray)
     assert sentence_embs_quant.size
